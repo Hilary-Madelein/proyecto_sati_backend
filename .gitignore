@@ -1,0 +1,17 @@
+# Dependencias y compilación
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Variables de entorno: contienen credenciales (p. ej. la de la SNGR)
+.env
+.env.*
+!.env.example
+
+# Logs y sistema
+*.log
+npm-debug.log*
+.DS_Store
+.idea/
+.vscode/
