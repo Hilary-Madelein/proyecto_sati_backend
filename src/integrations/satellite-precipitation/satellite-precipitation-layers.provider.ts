@@ -4,12 +4,6 @@ import { MapLayerProvider, type MapLayerDefinition, type MapLayerProviderAdapter
 
 const PRODUCTS = [
   {
-    key: 'imerg',
-    layerPrefix: 'imerg_early_run',
-    name: 'IMERG',
-    attribution: 'Lluvia observada: NASA GPM IMERG (Early Run) · INAMHI',
-  },
-  {
     key: 'persiann',
     layerPrefix: 'persiann_pdir',
     name: 'PERSIANN',

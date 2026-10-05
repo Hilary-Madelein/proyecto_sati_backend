@@ -1,13 +1,13 @@
 import { BadRequestException, Controller, Get, Param, ParseIntPipe, Res, StreamableFile } from '@nestjs/common';
 import { ApiOperation, ApiProduces, ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
-import { ACCUMULATION_HOURS, RainForecastService, type AccumulationHours } from './rain-forecast.service.js';
+import { FORECAST_DAYS, RainForecastService, type ForecastDay } from './rain-forecast.service.js';
 
-function toHours(value: number): AccumulationHours {
-  if (!ACCUMULATION_HOURS.includes(value as AccumulationHours)) {
-    throw new BadRequestException(`Las horas deben ser ${ACCUMULATION_HOURS.join(', ')}`);
+function toDay(value: number): ForecastDay {
+  if (!FORECAST_DAYS.includes(value as ForecastDay)) {
+    throw new BadRequestException(`El día debe ser ${FORECAST_DAYS.join(', ')}`);
   }
-  return value as AccumulationHours;
+  return value as ForecastDay;
 }
 
 @ApiTags('Lluvia pronosticada')
@@ -16,25 +16,22 @@ export class RainForecastController {
   constructor(private readonly rain: RainForecastService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Corrida vigente y qué acumulados (24/48/72 h) están disponibles' })
+  @ApiOperation({ summary: 'Corrida vigente y qué días (1, 2, 3) están disponibles' })
   availability() {
     return this.rain.availability();
   }
 
-  @Get('accumulated/:hours')
-  @ApiOperation({ summary: 'Lluvia acumulada pronosticada: ventana, límites y ruta de la imagen' })
-  accumulated(@Param('hours', ParseIntPipe) hours: number) {
-    return this.rain.accumulated(toHours(hours));
+  @Get('days/:day')
+  @ApiOperation({ summary: 'Lluvia pronosticada de un solo día: ventana, límites, máximo y ruta de la imagen' })
+  daily(@Param('day', ParseIntPipe) day: number) {
+    return this.rain.daily(toDay(day));
   }
 
-  @Get('accumulated/:hours/image')
+  @Get('days/:day/image')
   @ApiProduces('image/png')
-  @ApiOperation({ summary: 'Imagen PNG de la lluvia acumulada, lista para superponer en el mapa' })
-  async image(
-    @Param('hours', ParseIntPipe) hours: number,
-    @Res({ passthrough: true }) response: Response,
-  ): Promise<StreamableFile> {
-    const png = await this.rain.image(toHours(hours));
+  @ApiOperation({ summary: 'Imagen PNG de la lluvia pronosticada del día, lista para superponer en el mapa' })
+  async image(@Param('day', ParseIntPipe) day: number, @Res({ passthrough: true }) response: Response): Promise<StreamableFile> {
+    const png = await this.rain.image(toDay(day));
     // La URL lleva la corrida: la imagen de una corrida no cambia.
     response.setHeader('Cache-Control', 'public, max-age=21600');
     return new StreamableFile(png, { type: 'image/png' });

@@ -1,14 +1,15 @@
 import { BadGatewayException, Injectable, NotFoundException } from '@nestjs/common';
 import { TtlCache } from '../../common/cache/ttl-cache.js';
+import { ECUADOR_RINGS } from '../../common/geo/ecuador-boundary.js';
 import { UpstreamError } from '../../common/http/upstream.error.js';
 import { createColorRamp } from '../../common/raster/color-ramp.js';
-import { gridMax, sumGrids } from '../../common/raster/raster-grid.js';
+import { gridMax } from '../../common/raster/raster-grid.js';
 import { renderGridPng } from '../../common/raster/render-png.js';
 import { RainForecastSource, type ForecastRun } from './rain-forecast-source.js';
 
-/** Periodos de acumulación ofrecidos, en horas (múltiplos de un día). */
-export const ACCUMULATION_HOURS = [24, 48, 72] as const;
-export type AccumulationHours = (typeof ACCUMULATION_HOURS)[number];
+/** Días de pronóstico ofrecidos: 1 = las primeras 24 h de la corrida, 2 = las siguientes… */
+export const FORECAST_DAYS = [1, 2, 3] as const;
+export type ForecastDay = (typeof FORECAST_DAYS)[number];
 
 const MINUTE_MS = 60 * 1000;
 const HOUR_MS = 60 * MINUTE_MS;
@@ -17,11 +18,13 @@ const DAY_MS = 24 * HOUR_MS;
 const TIME_TOLERANCE_MS = HOUR_MS;
 /** Si el último paso disponible ya pasó hace más de esto, el pronóstico está atrasado. */
 const STALE_AFTER_MS = 3 * HOUR_MS;
+/** Imagen suavizada y recortada al Ecuador, igual que la lluvia observada. */
+const RENDER_OPTIONS = { scale: 3, smooth: true, clip: ECUADOR_RINGS } as const;
 
-export interface AccumulationPeriod {
-  hours: AccumulationHours;
+export interface ForecastDayStatus {
+  day: ForecastDay;
   available: boolean;
-  /** Ventana acumulada: desde el inicio de la corrida hasta `to` (ISO 8601). */
+  /** Las 24 h de ese día: desde `from` hasta `to` (ISO 8601). */
   from: string | null;
   to: string | null;
 }
@@ -30,32 +33,32 @@ export interface RainForecastAvailability {
   run: string | null;
   isStale: boolean;
   attribution: string;
-  periods: AccumulationPeriod[];
+  days: ForecastDayStatus[];
 }
 
-export interface AccumulatedRain {
+export interface DailyRainForecast {
   run: string;
-  hours: AccumulationHours;
+  day: ForecastDay;
   from: string;
   to: string;
   /** [[sur, oeste], [norte, este]] para superponer la imagen en el mapa. */
   bounds: [[number, number], [number, number]];
-  /** Lluvia máxima acumulada en una celda (mm). */
+  /** Lluvia máxima del día en una celda (mm). */
   maxMm: number;
   /** Ruta (relativa a la API) de la imagen PNG. */
   imagePath: string;
 }
 
 interface Rendered {
-  meta: AccumulatedRain;
+  meta: DailyRainForecast;
   png: Buffer;
 }
 
 /**
- * Lluvia pronosticada ACUMULADA: 24 h = día 1 de la corrida; 48 h = día 1 +
- * día 2; 72 h = días 1 a 3. Descarga la lluvia diaria en grilla, la suma celda
- * a celda y la pinta con la paleta oficial. El resultado no cambia hasta que
- * llega una corrida nueva, así que se cachea por corrida.
+ * Lluvia pronosticada DÍA POR DÍA: el día 2 muestra solo la lluvia de esas
+ * 24 h, no la suma con el día 1 (sumar días hacía parecer que se venía una
+ * tormenta enorme). Descarga la grilla diaria del modelo y la pinta con la
+ * paleta oficial. No cambia hasta que llega una corrida nueva: se cachea por corrida.
  */
 @Injectable()
 export class RainForecastService {
@@ -71,64 +74,58 @@ export class RainForecastService {
       run: run?.run ?? null,
       isStale: !latest || Date.parse(latest) < Date.now() - STALE_AFTER_MS,
       attribution: this.source.attribution,
-      periods: ACCUMULATION_HOURS.map((hours) => {
-        const times = run ? this.timesFor(run, hours) : null;
-        return { hours, available: times !== null, from: times ? run!.run : null, to: times?.at(-1) ?? null };
+      days: FORECAST_DAYS.map((day) => {
+        const time = run ? this.timeFor(run, day) : null;
+        return {
+          day,
+          available: time !== null,
+          from: time ? new Date(Date.parse(time) - DAY_MS).toISOString() : null,
+          to: time,
+        };
       }),
     };
   }
 
-  async accumulated(hours: AccumulationHours): Promise<AccumulatedRain> {
-    return (await this.render(hours)).meta;
+  async daily(day: ForecastDay): Promise<DailyRainForecast> {
+    return (await this.render(day)).meta;
   }
 
-  async image(hours: AccumulationHours): Promise<Buffer> {
-    return (await this.render(hours)).png;
+  async image(day: ForecastDay): Promise<Buffer> {
+    return (await this.render(day)).png;
   }
 
-  private async render(hours: AccumulationHours): Promise<Rendered> {
+  private async render(day: ForecastDay): Promise<Rendered> {
     const run = await this.latestRun();
-    const times = run ? this.timesFor(run, hours) : null;
-    if (!run || !times) throw new NotFoundException(`La corrida actual del modelo no llega a ${hours} h`);
+    const time = run ? this.timeFor(run, day) : null;
+    if (!run || !time) throw new NotFoundException(`La corrida actual del modelo no llega al día ${day}`);
 
     return this.upstream(
-      this.renderCache.get(`${run.run}:${hours}`, async () => {
-        const [grids, stops] = await Promise.all([
-          Promise.all(times.map((time) => this.source.getDailyGrid(run.run, time))),
-          this.source.getColorStops(),
-        ]);
-        const total = sumGrids(grids);
-        const [west, south, east, north] = total.bbox;
+      this.renderCache.get(`${run.run}:${day}`, async () => {
+        const [grid, stops] = await Promise.all([this.source.getDailyGrid(run.run, time), this.source.getColorStops()]);
+        const [west, south, east, north] = grid.bbox;
         return {
-          png: renderGridPng(total, createColorRamp(stops)),
+          png: renderGridPng(grid, createColorRamp(stops), RENDER_OPTIONS),
           meta: {
             run: run.run,
-            hours,
-            from: run.run,
-            to: times.at(-1)!,
+            day,
+            from: new Date(Date.parse(time) - DAY_MS).toISOString(),
+            to: time,
             bounds: [
               [south, west],
               [north, east],
             ],
-            maxMm: Math.round(gridMax(total) * 10) / 10,
-            imagePath: `/rain-forecast/accumulated/${hours}/image?run=${encodeURIComponent(run.run)}`,
+            maxMm: Math.round(gridMax(grid) * 10) / 10,
+            imagePath: `/rain-forecast/days/${day}/image?run=${encodeURIComponent(run.run)}`,
           },
         };
       }),
     );
   }
 
-  /** Pasos diarios 1…N de la corrida, o null si falta alguno. */
-  private timesFor(run: ForecastRun, hours: AccumulationHours): string[] | null {
-    const start = Date.parse(run.run);
-    const times: string[] = [];
-    for (let day = 1; day <= hours / 24; day++) {
-      const target = start + day * DAY_MS;
-      const time = run.dailyTimes.find((candidate) => Math.abs(Date.parse(candidate) - target) <= TIME_TOLERANCE_MS);
-      if (!time) return null;
-      times.push(time);
-    }
-    return times;
+  /** Paso diario del día N de la corrida (lluvia de las 24 h que terminan en él), o null si no existe. */
+  private timeFor(run: ForecastRun, day: ForecastDay): string | null {
+    const target = Date.parse(run.run) + day * DAY_MS;
+    return run.dailyTimes.find((candidate) => Math.abs(Date.parse(candidate) - target) <= TIME_TOLERANCE_MS) ?? null;
   }
 
   private latestRun(): Promise<ForecastRun | null> {

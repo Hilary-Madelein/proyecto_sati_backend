@@ -67,16 +67,21 @@ export const envSchema = z.object({
   /** Token para lanzar sincronizaciones manuales (POST /ingestion/...). Vacío = deshabilitado. */
   ADMIN_TOKEN: z.string().min(24).optional().or(z.literal('').transform(() => undefined)),
 
-  // ── SNGR: eventos adversos ───────────────────────────────────────────────
+  // ── SNGR: eventos por lluvias (API de monitoreo del COE) ──────────────────
   SNGR_ENABLED: booleanFlag(true),
-  SNGR_URL: z.url(),
-  /** Credencial del web service. Obligatoria solo si SNGR_ENABLED=true. */
-  SNGR_TOKEN: z.string().default(''),
+  /** Inicio de sesión: usuario y clave → token JWT. */
+  SNGR_LOGIN_URL: z.url().default('https://monitoreocoe.gestionderiesgos.gob.ec/api/usuarios/login'),
+  /** Consulta de eventos por lluvias (token + rango de fechas). */
+  SNGR_EVENTS_URL: z.url().default('https://monitoreocoe.gestionderiesgos.gob.ec/api/public/eventos_lluvias'),
+  /** Credenciales de la API. Obligatorias solo si SNGR_ENABLED=true. */
   SNGR_USUARIO: z.string().default(''),
-  /** La SNGR tarda ~15 s y a veces más de 30 s. */
+  SNGR_CLAVE: z.string().default(''),
   SNGR_TIMEOUT_MS: z.coerce.number().int().positive().default(60_000),
   SNGR_SYNC_INTERVAL_MINUTES: z.coerce.number().int().min(5).default(15),
-  /** Días hacia atrás que se cargan la primera vez (cuando la BD está vacía). */
+  /**
+   * Días hacia atrás que se consultan en cada sincronización. Se relee toda la
+   * ventana para captar cambios de eventos ya conocidos (p. ej. Seguimiento → Cierre).
+   */
   SNGR_BACKFILL_DAYS: z.coerce.number().int().min(1).max(365).default(30),
 
   // ── Capas WMS (GeoServer del INAMHI servido por GeoGLOWS) ────────────────
@@ -86,6 +91,10 @@ export const envSchema = z.object({
   SATELLITE_PRECIPITATION_WMS_URL: z
     .url()
     .default('http://services.geoglows.org:8080/geoserver/satellite_based_precipitation/wms'),
+  /** Mismo servidor por WCS: lluvia horaria en grilla para calcular las últimas 24/48/72 h. */
+  SATELLITE_PRECIPITATION_WCS_URL: z
+    .url()
+    .default('http://services.geoglows.org:8080/geoserver/satellite_based_precipitation/wcs'),
 
   // ── Caudales ─────────────────────────────────────────────────────────────
   /** API pública de GEOGLOWS (pronóstico de caudal por tramo de río). */
@@ -97,7 +106,7 @@ export const envSchema = z.object({
     ctx.addIssue({ code: 'custom', path: ['DATABASE_URL'], message: 'obligatoria cuando STORAGE=postgres' });
   }
   if (!env.SNGR_ENABLED) return;
-  for (const key of ['SNGR_TOKEN', 'SNGR_USUARIO'] as const) {
+  for (const key of ['SNGR_USUARIO', 'SNGR_CLAVE'] as const) {
     if (!env[key]) {
       ctx.addIssue({ code: 'custom', path: [key], message: 'obligatoria cuando SNGR_ENABLED=true' });
     }

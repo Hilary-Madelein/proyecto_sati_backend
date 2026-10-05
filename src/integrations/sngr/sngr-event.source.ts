@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { splitIntoDateRanges } from '../../common/time/ecuador-time.js';
+import { toEcuadorDate } from '../../common/time/ecuador-time.js';
 import { AppConfigService } from '../../config/app-config.service.js';
 import type { NormalizedEvent } from '../../modules/events/domain/normalized-event.js';
 import {
@@ -11,6 +11,8 @@ import {
 import { SngrClient } from './sngr.client.js';
 import { mapSngrEvent, SNGR_SOURCE_KEY } from './sngr.mapper.js';
 
+const HOURS_PER_DAY = 24;
+
 @HazardEventSource()
 @Injectable()
 export class SngrEventSource implements HazardEventSourceAdapter {
@@ -21,41 +23,57 @@ export class SngrEventSource implements HazardEventSourceAdapter {
     private readonly client: SngrClient,
     config: AppConfigService,
   ) {
+    const windowDays = config.get('SNGR_BACKFILL_DAYS');
     this.descriptor = {
       key: SNGR_SOURCE_KEY,
-      name: 'SNGR · Eventos adversos',
+      name: 'SNGR · Eventos por lluvias',
       enabled: config.get('SNGR_ENABLED'),
       intervalMinutes: config.get('SNGR_SYNC_INTERVAL_MINUTES'),
-      backfillDays: config.get('SNGR_BACKFILL_DAYS'),
-      // La API filtra por día: se repite el último día para no perder actualizaciones.
-      overlapHours: 24,
+      backfillDays: windowDays,
+      // Cada sincronización relee los últimos `windowDays` días completos: así se
+      // captan los cambios de eventos ya conocidos (Seguimiento → Cierre, nuevas
+      // cifras). Son pocos registros y los que no cambian no se reescriben.
+      overlapHours: windowDays * HOURS_PER_DAY,
     };
   }
 
   async fetchEvents(window: SyncWindow): Promise<NormalizedEvent[]> {
-    const ranges = splitIntoDateRanges(window.from, window.to, SngrClient.MAX_DAYS_PER_REQUEST);
-    const records = new Map<string, unknown>();
+    const records = await this.client.fetchRainEvents({
+      from: toEcuadorDate(window.from),
+      to: toEcuadorDate(window.to),
+    });
 
-    // En serie: la SNGR es lenta y no conviene cargarla con consultas en paralelo.
-    for (const range of ranges) {
-      for (const record of await this.client.fetchUpdatedBetween(range)) {
-        const id = (record as { EventoID?: unknown } | null)?.EventoID;
-        if (id !== undefined && id !== null) records.set(String(id), record);
-      }
-    }
-
-    const events: NormalizedEvent[] = [];
+    const events = new Map<string, NormalizedEvent>();
     const discarded = new Map<string, number>();
-    for (const record of records.values()) {
+    const unclassified = new Map<string, number>();
+    let repeated = 0;
+
+    for (const record of records) {
       const result = mapSngrEvent(record);
-      if (result.ok) events.push(result.event);
-      else discarded.set(result.reason, (discarded.get(result.reason) ?? 0) + 1);
+      if (!result.ok) {
+        increment(discarded, result.reason);
+        continue;
+      }
+      const { event } = result;
+      if (events.has(event.externalId)) repeated++;
+      events.set(event.externalId, event);
+      if (event.hazardType === 'other') increment(unclassified, String((record as { Evento?: unknown }).Evento ?? 'sin nombre'));
     }
 
-    if (discarded.size > 0) {
-      const detail = [...discarded].map(([reason, total]) => `${total} por ${reason}`).join(', ');
-      this.logger.warn(`Registros descartados: ${detail}`);
+    if (discarded.size > 0) this.logger.warn(`Registros descartados: ${summarize(discarded)}`);
+    if (repeated > 0) {
+      this.logger.warn(`${repeated} registros repetidos (misma parroquia, tipo, fecha, hora y coordenadas): se guardó uno`);
     }
-    return events;
+    if (unclassified.size > 0) this.logger.log(`Eventos guardados como "Otro": ${summarize(unclassified)}`);
+    return [...events.values()];
   }
+}
+
+function increment(counts: Map<string, number>, key: string) {
+  counts.set(key, (counts.get(key) ?? 0) + 1);
+}
+
+/** "fecha inválida (3), formato inválido (1)" · "Vendaval (12)". */
+function summarize(counts: Map<string, number>): string {
+  return [...counts].map(([key, total]) => `${key} (${total})`).join(', ');
 }

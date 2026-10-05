@@ -13,6 +13,7 @@ import { HydrologyModule } from './modules/hydrology/hydrology.module.js';
 import { IngestionModule } from './modules/ingestion/ingestion.module.js';
 import { MapLayersModule } from './modules/map-layers/map-layers.module.js';
 import { NotificationsModule } from './modules/notifications/notifications.module.js';
+import { ObservedRainModule } from './modules/observed-rain/observed-rain.module.js';
 import { RainForecastModule } from './modules/rain-forecast/rain-forecast.module.js';
 import { StorageModule } from './storage/storage.module.js';
 
@@ -31,6 +32,7 @@ import { StorageModule } from './storage/storage.module.js';
     MapLayersModule,
     HydrologyModule,
     RainForecastModule,
+    ObservedRainModule,
     NotificationsModule,
     HealthModule,
 

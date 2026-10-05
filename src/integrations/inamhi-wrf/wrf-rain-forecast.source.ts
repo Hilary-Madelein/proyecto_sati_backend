@@ -1,10 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import { fromArrayBuffer } from 'geotiff';
 import { TtlCache } from '../../common/cache/ttl-cache.js';
 import { fetchWithRetry } from '../../common/http/fetch-with-retry.js';
 import { UpstreamError } from '../../common/http/upstream.error.js';
 import type { ColorStop } from '../../common/raster/color-ramp.js';
+import { readGeoTiffGrid } from '../../common/raster/geotiff.js';
 import type { RasterGrid } from '../../common/raster/raster-grid.js';
+import { colorStopsFromLegendGraphic, type LegendGraphicJson } from '../../common/wms/legend-graphic.js';
 import { parseWmsLayerDimensions } from '../../common/wms/wms-capabilities.js';
 import { AppConfigService } from '../../config/app-config.service.js';
 import { RainForecastSource, type ForecastRun } from '../../modules/rain-forecast/rain-forecast-source.js';
@@ -14,16 +15,6 @@ const SERVICE = 'WRF INAMHI';
 const LAYER = 'wrf_precipitation_daily';
 const COVERAGE_ID = `wrf__${LAYER}`;
 const HOUR_MS = 60 * 60 * 1000;
-
-interface LegendGraphicJson {
-  Legend?: Array<{
-    rules?: Array<{
-      symbolizers?: Array<{
-        Raster?: { colormap?: { entries?: Array<{ quantity: string; color: string; opacity?: string }> } };
-      }>;
-    }>;
-  }>;
-}
 
 /**
  * Lluvia diaria del modelo WRF del INAMHI (GeoServer servido por GeoGLOWS):
@@ -67,16 +58,7 @@ export class WrfRainForecastSource extends RainForecastSource {
 
       const buffer = await (await fetchWithRetry(url, { service: SERVICE, timeoutMs: 60_000, retries: 1 })).arrayBuffer();
       try {
-        const image = await (await fromArrayBuffer(buffer)).getImage();
-        const [band] = await image.readRasters();
-        const [west, south, east, north] = image.getBoundingBox();
-        return {
-          width: image.getWidth(),
-          height: image.getHeight(),
-          bbox: [west, south, east, north],
-          values: Float64Array.from(band as ArrayLike<number>),
-          noData: image.getGDALNoData(),
-        };
+        return await readGeoTiffGrid(buffer);
       } catch {
         // El servidor responde un XML de error (con HTTP 200) si el paso no existe.
         throw new UpstreamError(SERVICE, `no hay datos de lluvia para ${time}`);
@@ -92,13 +74,9 @@ export class WrfRainForecastSource extends RainForecastSource {
       url.searchParams.set('FORMAT', 'application/json');
       url.searchParams.set('LAYER', LAYER);
       const data = (await (await fetchWithRetry(url, { service: SERVICE, timeoutMs: 30_000 })).json()) as LegendGraphicJson;
-      const entries = data.Legend?.[0]?.rules?.[0]?.symbolizers?.[0]?.Raster?.colormap?.entries ?? [];
-      if (entries.length === 0) throw new UpstreamError(SERVICE, 'la capa no publica su paleta de colores');
-      return entries.map((entry) => ({
-        value: Number.parseFloat(entry.quantity),
-        color: entry.color,
-        opacity: Number.parseFloat(entry.opacity ?? '1'),
-      }));
+      const stops = colorStopsFromLegendGraphic(data);
+      if (stops.length === 0) throw new UpstreamError(SERVICE, 'la capa no publica su paleta de colores');
+      return stops;
     });
   }
 }

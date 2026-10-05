@@ -11,7 +11,7 @@ NestJS 12 (ESM) · TypeORM · PostgreSQL 14+ con PostGIS · Node 24.
 Requisito: Node 24 (`nvm use`). La base de datos es opcional.
 
 ```bash
-cp .env.example .env          # completa SNGR_TOKEN y SNGR_USUARIO (y ADMIN_TOKEN si lo usarás)
+# crea .env con SNGR_USUARIO y SNGR_CLAVE (y ADMIN_TOKEN si lo usarás)
 npm install
 npm run start:dev
 ```
@@ -34,11 +34,11 @@ npm run start:dev
 El dominio solo depende de los contratos `EventStore`, `SyncRunStore` y `SourceLock`;
 `src/storage/memory` y `src/storage/postgres` los implementan.
 
-- API: <http://localhost:5000/api/v1>
-- Documentación interactiva (Swagger): <http://localhost:5000/api/docs>
+- API: <http://localhost:4000/api/v1>
+- Documentación interactiva (Swagger): <http://localhost:4000/api/docs>
 
-La primera vez se cargan los últimos `SNGR_BACKFILL_DAYS` días de la SNGR; puede
-tardar unos minutos porque la SNGR responde lento (15–60 s por consulta).
+En cada sincronización se consultan los últimos `SNGR_BACKFILL_DAYS` días de la SNGR
+(API de eventos por lluvias: login con usuario y clave → token → consulta por fechas).
 
 ## Arquitectura
 
@@ -53,13 +53,13 @@ src/
 │   ├── ingestion/     Descubre las fuentes, las programa y guarda cada sincronización
 │   ├── map-layers/    Capas WMS y teselas vectoriales: disponibilidad, leyenda y proxy seguro
 │   ├── hydrology/     Caudales de ríos: alertas por periodo de retorno e hidrogramas
-│   ├── rain-forecast/ Lluvia pronosticada acumulada 24/48/72 h (suma de días del WRF)
+│   ├── rain-forecast/ Lluvia pronosticada del WRF en tramos de 24 h (0–24, 24–48, 48–72 h)
 │   ├── notifications/ Regla de alertas y canales de envío (log hoy, correo después)
 │   └── health/        Estado del servicio y la BD
 └── integrations/      Un adaptador por API externa
     ├── sngr/                     Eventos adversos de la SNGR
     ├── inamhi-wrf/               Lluvia pronosticada del modelo WRF (INAMHI, GeoServer de GeoGLOWS)
-    ├── satellite-precipitation/  Lluvia observada por satélite (IMERG, PERSIANN) 24/48/72 h
+    ├── satellite-precipitation/  Lluvia observada por satélite (PERSIANN): horaria por WCS
     ├── geoglows/                 API pública de GEOGLOWS: río más cercano y pronóstico de caudal
     └── inamhi-hydroviewer/       Hydroviewer del INAMHI: red de ríos y alertas por caudal
 ```
@@ -141,9 +141,12 @@ patrón: un contrato para sus fuentes y adaptadores en `integrations/`.
 | GET | `/api/v1/layers/:id/legend` | Rampa de colores real |
 | GET | `/api/v1/layers/:id/wms` | Proxy WMS (úsalo como URL de la capa en Leaflet) |
 | GET | `/api/v1/layers/:id/tiles/:z/:x/:y` | Proxy de teselas vectoriales (red de ríos) |
-| GET | `/api/v1/rain-forecast` | Corrida vigente del WRF y acumulados disponibles (24/48/72 h) |
-| GET | `/api/v1/rain-forecast/accumulated/:hours` | Acumulado: ventana, límites, máximo y ruta de la imagen |
-| GET | `/api/v1/rain-forecast/accumulated/:hours/image` | Imagen PNG del acumulado para superponer en el mapa |
+| GET | `/api/v1/rain-forecast` | Corrida vigente del WRF y días disponibles (1, 2, 3) |
+| GET | `/api/v1/rain-forecast/days/:day` | Lluvia de un solo día: ventana, límites, máximo y ruta de la imagen |
+| GET | `/api/v1/rain-forecast/days/:day/image` | Imagen PNG de la lluvia del día para superponer en el mapa |
+| GET | `/api/v1/observed-rain` | Lluvia observada por satélite: última hora y ventanas 24/48/72 h por producto |
+| GET | `/api/v1/observed-rain/:product/accumulated/:hours` | Lluvia observada hasta la última hora: ventana, máximo y ruta de la imagen |
+| GET | `/api/v1/observed-rain/:product/accumulated/:hours/image` | Imagen PNG de la lluvia observada acumulada |
 | GET | `/api/v1/rivers/alerts` | Tramos con alerta por caudal, por día del último pronóstico (14 días) |
 | GET | `/api/v1/rivers/at?lat=&lng=` | Tramo de río más cercano a un punto y su alerta |
 | GET | `/api/v1/rivers/:riverId/forecast` | Pronóstico de caudal (ensamble y alta resolución, 15 días) |
@@ -155,7 +158,7 @@ patrón: un contrato para sus fuentes y adaptadores en `integrations/`.
 ## Severidad de los eventos
 
 Cada fuente traduce su propia escala a la severidad del sistema. La SNGR usa su nivel
-oficial (`NivelDeEvento`), en `src/integrations/sngr/sngr.mapper.ts`:
+oficial (`NivelDelEvento`), en `src/integrations/sngr/sngr.mapper.ts`:
 
 - **Crítico**: Nivel 3 o superior.
 - **Alto**: Nivel 2.
@@ -181,16 +184,15 @@ Se alerta solo por eventos **abiertos**, **críticos o altos** y ocurridos en la
 
 Pendiente de definir el servidor.
 
-## Lluvia pronosticada acumulada
+## Lluvia pronosticada día por día
 
-El WRF del INAMHI publica la lluvia **de cada día** por separado. El backend calcula los
-acumulados: 24 h = día 1 de la corrida, 48 h = días 1 + 2, 72 h = días 1 a 3.
+El WRF del INAMHI publica la lluvia **de cada día** por separado. El backend entrega un día
+a la vez (día 1 = 0–24 h, 2 = 24–48 h, 3 = 48–72 h), **sin sumarlos**.
 
-1. Descarga la lluvia diaria en grilla por WCS (GeoTIFF, ~3 km) de la última corrida.
-2. Suma celda a celda (`common/raster/raster-grid.ts`).
-3. Pinta un PNG con la paleta oficial de la capa (GetLegendGraphic), reproyectado a Web
-   Mercator para que calce en Leaflet (`common/raster/render-png.ts`).
-4. Lo cachea por corrida: no cambia hasta que el INAMHI publique una corrida nueva.
+1. Descarga la lluvia del día en grilla por WCS (GeoTIFF, ~3 km) de la última corrida.
+2. Pinta un PNG con la paleta oficial de la capa (GetLegendGraphic), suavizado, recortado
+   al Ecuador y reproyectado a Web Mercator (`common/raster/render-png.ts`).
+3. Lo cachea por corrida: no cambia hasta que el INAMHI publique una corrida nueva.
 
-Si la corrida no llega a un periodo (p. ej. 72 h), ese periodo aparece como no disponible.
+Si la corrida no llega a un día (p. ej. el día 3), ese día aparece como no disponible.
 
