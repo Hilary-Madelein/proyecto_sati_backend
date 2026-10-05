@@ -53,6 +53,7 @@ src/
 │   ├── ingestion/     Descubre las fuentes, las programa y guarda cada sincronización
 │   ├── map-layers/    Capas WMS y teselas vectoriales: disponibilidad, leyenda y proxy seguro
 │   ├── hydrology/     Caudales de ríos: alertas por periodo de retorno e hidrogramas
+│   ├── rain-forecast/ Lluvia pronosticada acumulada 24/48/72 h (suma de días del WRF)
 │   ├── notifications/ Regla de alertas y canales de envío (log hoy, correo después)
 │   └── health/        Estado del servicio y la BD
 └── integrations/      Un adaptador por API externa
@@ -140,6 +141,9 @@ patrón: un contrato para sus fuentes y adaptadores en `integrations/`.
 | GET | `/api/v1/layers/:id/legend` | Rampa de colores real |
 | GET | `/api/v1/layers/:id/wms` | Proxy WMS (úsalo como URL de la capa en Leaflet) |
 | GET | `/api/v1/layers/:id/tiles/:z/:x/:y` | Proxy de teselas vectoriales (red de ríos) |
+| GET | `/api/v1/rain-forecast` | Corrida vigente del WRF y acumulados disponibles (24/48/72 h) |
+| GET | `/api/v1/rain-forecast/accumulated/:hours` | Acumulado: ventana, límites, máximo y ruta de la imagen |
+| GET | `/api/v1/rain-forecast/accumulated/:hours/image` | Imagen PNG del acumulado para superponer en el mapa |
 | GET | `/api/v1/rivers/alerts` | Tramos con alerta por caudal, por día del último pronóstico (14 días) |
 | GET | `/api/v1/rivers/at?lat=&lng=` | Tramo de río más cercano a un punto y su alerta |
 | GET | `/api/v1/rivers/:riverId/forecast` | Pronóstico de caudal (ensamble y alta resolución, 15 días) |
@@ -176,3 +180,17 @@ Se alerta solo por eventos **abiertos**, **críticos o altos** y ocurridos en la
 ## Despliegue
 
 Pendiente de definir el servidor.
+
+## Lluvia pronosticada acumulada
+
+El WRF del INAMHI publica la lluvia **de cada día** por separado. El backend calcula los
+acumulados: 24 h = día 1 de la corrida, 48 h = días 1 + 2, 72 h = días 1 a 3.
+
+1. Descarga la lluvia diaria en grilla por WCS (GeoTIFF, ~3 km) de la última corrida.
+2. Suma celda a celda (`common/raster/raster-grid.ts`).
+3. Pinta un PNG con la paleta oficial de la capa (GetLegendGraphic), reproyectado a Web
+   Mercator para que calce en Leaflet (`common/raster/render-png.ts`).
+4. Lo cachea por corrida: no cambia hasta que el INAMHI publique una corrida nueva.
+
+Si la corrida no llega a un periodo (p. ej. 72 h), ese periodo aparece como no disponible.
+

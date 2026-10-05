@@ -6,11 +6,16 @@ import { STORAGE_MODE } from '../storage-mode.js';
 import { InMemoryEventStore } from './in-memory-event.store.js';
 import { InMemorySourceLock } from './in-memory-source.lock.js';
 import { InMemorySyncRunStore } from './in-memory-sync-run.store.js';
+import { JsonFilePersistence } from './json-file-persistence.js';
 
-/** Almacenamiento en memoria (STORAGE=memory): sin base de datos, los datos se pierden al reiniciar. */
+/**
+ * Almacenamiento en memoria (STORAGE=memory): sin base de datos. Con
+ * MEMORY_PERSIST_DIR los datos se guardan en archivos y sobreviven a reinicios.
+ */
 @Global()
 @Module({
   providers: [
+    JsonFilePersistence,
     { provide: STORAGE_MODE, useValue: 'memory' },
     { provide: EventStore, useClass: InMemoryEventStore },
     { provide: SyncRunStore, useClass: InMemorySyncRunStore },
@@ -20,6 +25,6 @@ import { InMemorySyncRunStore } from './in-memory-sync-run.store.js';
 })
 export class MemoryStorageModule implements OnModuleInit {
   onModuleInit(): void {
-    new Logger('Storage').warn('Almacenamiento en memoria: los datos se pierden al reiniciar (STORAGE=postgres para usar la BD)');
+    new Logger('Storage').warn('Almacenamiento en memoria con copia en archivos (STORAGE=postgres para usar la BD)');
   }
 }

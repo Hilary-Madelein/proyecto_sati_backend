@@ -1,16 +1,36 @@
 import { randomUUID } from 'node:crypto';
-import { Injectable } from '@nestjs/common';
-import type { HazardEventEntity } from '../../modules/events/entities/hazard-event.entity.js';
+import { Injectable, Optional } from '@nestjs/common';
+import { HazardEventEntity } from '../../modules/events/entities/hazard-event.entity.js';
 import { EventStore, type EventChanges, type EventFilters, type EventSummary } from '../../modules/events/event-store.js';
+import { JsonFilePersistence } from './json-file-persistence.js';
+
+const SNAPSHOT = 'events';
+type StoredEvent = Omit<HazardEventEntity, 'occurredAt' | 'lastSeenAt' | 'createdAt' | 'updatedAt'> &
+  Record<'occurredAt' | 'lastSeenAt' | 'createdAt' | 'updatedAt', string>;
 
 /**
- * Eventos en memoria: sirve para trabajar sin base de datos. Los datos se
- * pierden al reiniciar (la ingesta vuelve a cargarlos al arrancar).
+ * Eventos en memoria: sirve para trabajar sin base de datos. Si hay
+ * persistencia en archivo, se restauran al arrancar y se guardan tras cada
+ * cambio, así reiniciar el servidor no obliga a volver a cargar todo.
  */
 @Injectable()
 export class InMemoryEventStore extends EventStore {
   private readonly byId = new Map<string, HazardEventEntity>();
   private readonly idByKey = new Map<string, string>();
+
+  constructor(@Optional() private readonly persistence?: JsonFilePersistence) {
+    super();
+    for (const stored of persistence?.load<StoredEvent[]>(SNAPSHOT) ?? []) {
+      const event = Object.assign(new HazardEventEntity(), stored, {
+        occurredAt: new Date(stored.occurredAt),
+        lastSeenAt: new Date(stored.lastSeenAt),
+        createdAt: new Date(stored.createdAt),
+        updatedAt: new Date(stored.updatedAt),
+      });
+      this.byId.set(event.id, event);
+      this.idByKey.set(`${event.source}:${event.externalId}`, event.id);
+    }
+  }
 
   async findExisting(source: string, externalIds: string[]): Promise<HazardEventEntity[]> {
     return externalIds
@@ -30,6 +50,7 @@ export class InMemoryEventStore extends EventStore {
       const event = this.byId.get(id);
       if (event) event.lastSeenAt = seenAt;
     }
+    this.persistence?.save(SNAPSHOT, () => [...this.byId.values()]);
   }
 
   async list(filters: EventFilters, page: { limit: number; offset: number }) {
