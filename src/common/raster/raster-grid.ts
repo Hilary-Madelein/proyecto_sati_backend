@@ -51,3 +51,38 @@ export function valueAt(grid: RasterGrid, lat: number, lng: number): number | nu
   const value = grid.values[row * grid.width + column];
   return Number.isFinite(value) && value !== grid.noData ? value : null;
 }
+
+/**
+ * Extiende los datos hacia las celdas vacías vecinas: cada celda sin dato que
+ * toca alguna con dato toma el promedio de sus vecinas (8 alrededor), `passes`
+ * veces. Sirve para que una imagen recortada a la costa llegue hasta la orilla
+ * aunque la grilla marque como tierra las celdas que la tocan.
+ */
+export function fillGaps(grid: RasterGrid, passes: number): RasterGrid {
+  const { width, height } = grid;
+  let values = Float64Array.from(grid.values, (value) => (value === grid.noData ? Number.NaN : value));
+  for (let pass = 0; pass < passes; pass++) {
+    const next = values.slice();
+    for (let row = 0; row < height; row++) {
+      for (let col = 0; col < width; col++) {
+        if (Number.isFinite(values[row * width + col])) continue;
+        let total = 0;
+        let count = 0;
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            const [r, c] = [row + dy, col + dx];
+            if (r < 0 || r >= height || c < 0 || c >= width) continue;
+            const neighbor = values[r * width + c];
+            if (Number.isFinite(neighbor)) {
+              total += neighbor;
+              count++;
+            }
+          }
+        }
+        if (count > 0) next[row * width + col] = total / count;
+      }
+    }
+    values = next;
+  }
+  return { ...grid, values, noData: null };
+}

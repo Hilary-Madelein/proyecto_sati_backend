@@ -122,8 +122,12 @@ export const envSchema = z.object({
   /** Servidor de teselas del Hydroviewer del INAMHI (red de ríos y alertas). */
   HYDROVIEWER_TILES_URL: z.url().default('https://services.geoglows.org/martin'),
 
-  // ── Temperatura del mar (NOAA OISST, ERDDAP de CoastWatch) ───────────────
-  /** Dataset en tiempo casi real (~1 día de retraso), sin el sufijo del formato. La versión "final" llega ~15 días tarde. */
+  // ── Temperatura del mar (NOAA OISST v2.1) ────────────────────────────────
+  /** Carpetas mensuales de NCEI con un archivo NetCDF por día (fuente principal). */
+  OISST_FILES_URL: z
+    .url()
+    .default('https://www.ncei.noaa.gov/data/sea-surface-temperature-optimum-interpolation/v2.1/access/avhrr'),
+  /** Respaldo: dataset del ERDDAP de CoastWatch, sin el sufijo del formato. La versión "final" llega ~15 días tarde. */
   OISST_ERDDAP_URL: z.url().default('https://coastwatch.pfeg.noaa.gov/erddap/griddap/ncdcOisst21NrtAgg_LonPM180'),
 }).superRefine((env, ctx) => {
   if (env.STORAGE === 'postgres' && !env.DATABASE_URL) {

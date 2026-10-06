@@ -1,6 +1,6 @@
 import { PNG } from 'pngjs';
 import { createColorRamp } from './color-ramp.js';
-import { gridMax, sumGrids, valueAt, type RasterGrid } from './raster-grid.js';
+import { fillGaps, gridMax, sumGrids, valueAt, type RasterGrid } from './raster-grid.js';
 import { renderGridPng } from './render-png.js';
 
 const grid = (values: number[], noData: number | null = null): RasterGrid => ({
@@ -97,5 +97,34 @@ describe('renderGridPng', () => {
     ];
     const row = firstRow(renderGridPng(grid([7, 7, 7, 7]), asRed, { scale: 4, clip }));
     expect(row).toEqual([7, 7, 7, 7, null, null, null, null]);
+  });
+
+  it('deja transparente lo que cae dentro de los anillos excluidos (p. ej. la tierra)', () => {
+    const land = [
+      [
+        [-79, -2],
+        [-78, -2],
+        [-78, 0],
+        [-79, 0],
+      ] as const,
+    ];
+    const row = firstRow(renderGridPng(grid([7, 7, 7, 7]), asRed, { scale: 4, exclude: land }));
+    expect(row).toEqual([7, 7, 7, 7, null, null, null, null]);
+  });
+});
+
+describe('fillGaps', () => {
+  it('cada celda vacía junto a datos toma el promedio de sus vecinas, una franja por pasada', () => {
+    const strip: RasterGrid = { width: 4, height: 1, bbox: [-80, -1, -76, 0], values: Float64Array.from([2, 4, NaN, NaN]), noData: null };
+    expect(Array.from(fillGaps(strip, 1).values)).toEqual([2, 4, 4, NaN]);
+    expect(Array.from(fillGaps(strip, 2).values)).toEqual([2, 4, 4, 4]);
+  });
+
+  it('trata el valor de "sin dato" como vacío y no modifica la grilla original', () => {
+    const original = grid([10, -9999, 20, 30], -9999);
+    const filled = fillGaps(original, 1);
+    expect(filled.values[1]).toBe(20);
+    expect(filled.noData).toBeNull();
+    expect(original.values[1]).toBe(-9999);
   });
 });

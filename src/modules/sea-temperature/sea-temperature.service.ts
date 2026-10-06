@@ -2,7 +2,9 @@ import { BadGatewayException, Injectable } from '@nestjs/common';
 import { TtlCache } from '../../common/cache/ttl-cache.js';
 import { UpstreamError } from '../../common/http/upstream.error.js';
 import { createColorRamp, type ColorStop } from '../../common/raster/color-ramp.js';
-import { valueAt, type RasterGrid } from '../../common/raster/raster-grid.js';
+import { isInsideRings } from '../../common/geo/polygon.js';
+import { SEA_REGION_LAND_RINGS } from '../../common/geo/sea-region-land.js';
+import { fillGaps, valueAt, type RasterGrid } from '../../common/raster/raster-grid.js';
 import { renderGridPng } from '../../common/raster/render-png.js';
 import { SeaTemperatureSource } from './sea-temperature-source.js';
 
@@ -12,7 +14,13 @@ const DAY_MS = 24 * HOUR_MS;
 const STALE_AFTER_MS = 4 * DAY_MS;
 /** El dato cambia una vez al día. */
 const CACHE_MS = 3 * HOUR_MS;
-const RENDER_OPTIONS = { scale: 6, smooth: true } as const;
+/** La imagen se recorta a la costa real (la grilla de 0,25° la dibuja en escalones). */
+const RENDER_OPTIONS = { scale: 12, smooth: true, exclude: SEA_REGION_LAND_RINGS } as const;
+/**
+ * Celdas que se extienden hacia la costa: la grilla marca como tierra toda celda
+ * que la toca, y sin esto quedaría una franja vacía entre el color y la orilla.
+ */
+const COAST_FILL_PASSES = 2;
 
 /** Región Niño 1+2 (frente a Ecuador y Perú), [oeste, sur, este, norte]: la que se vigila para El Niño costero. */
 export const NINO_12_BBOX = [-90, -10, -80, 0] as const;
@@ -110,6 +118,8 @@ export class SeaTemperatureService {
 
   async valueAt(lat: number, lng: number): Promise<SeaTemperaturePoint> {
     const { meta, sst, anomaly } = await this.render();
+    // Igual que la imagen: en tierra no hay dato; en el mar junto a la costa, el valor extendido.
+    if (isInsideRings(SEA_REGION_LAND_RINGS, lng, lat)) return { time: meta.time, sst: null, anomaly: null };
     const [temperature, difference] = [valueAt(sst, lat, lng), valueAt(anomaly, lat, lng)];
     return {
       time: meta.time,
@@ -125,10 +135,11 @@ export class SeaTemperatureService {
         const [west, south, east, north] = field.anomaly.bbox;
         const finite = Array.from(field.anomaly.values).filter(Number.isFinite);
         const nino = meanInBox(field.anomaly, NINO_12_BBOX);
+        const anomaly = fillGaps(field.anomaly, COAST_FILL_PASSES);
         return {
-          sst: field.sst,
-          anomaly: field.anomaly,
-          png: renderGridPng(field.anomaly, createColorRamp([...ANOMALY_STOPS]), RENDER_OPTIONS),
+          sst: fillGaps(field.sst, COAST_FILL_PASSES),
+          anomaly,
+          png: renderGridPng(anomaly, createColorRamp([...ANOMALY_STOPS]), RENDER_OPTIONS),
           meta: {
             time: field.time,
             isStale: Date.parse(field.time) < Date.now() - STALE_AFTER_MS,

@@ -1,4 +1,4 @@
- {
+{
   "name": "proyecto_sati_backend",
   "version": "0.0.1",
   "description": "API del Sistema de alerta temprana de inundaciones para el Ecuador (SATI.EC)",
@@ -39,6 +39,7 @@
     "class-validator": "^0.15.1",
     "fast-xml-parser": "^5.11.2",
     "geotiff": "^3.0.5",
+    "jsfive": "^0.4.2",
     "nodemailer": "^10.0.15",
     "pbf": "^5.1.2",
     "pg": "^8.23.1",

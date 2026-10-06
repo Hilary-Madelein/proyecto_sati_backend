@@ -19,6 +19,8 @@ export interface RenderOptions {
   smooth?: boolean;
   /** Solo se pinta lo que cae dentro de estos anillos (p. ej. el contorno del país). */
   clip?: readonly Ring[];
+  /** No se pinta lo que cae dentro de estos anillos (p. ej. la tierra, para una capa del mar). */
+  exclude?: readonly Ring[];
 }
 
 /**
@@ -27,7 +29,7 @@ export interface RenderOptions {
  * que cada celda quede donde corresponde.
  */
 export function renderGridPng(grid: RasterGrid, color: (value: number) => Rgba, options: RenderOptions = {}): Buffer {
-  const { scale = 3, smooth = false, clip } = options;
+  const { scale = 3, smooth = false, clip, exclude } = options;
   const [west, south, east, north] = grid.bbox;
   const width = grid.width * scale;
   const height = grid.height * scale;
@@ -64,11 +66,12 @@ export function renderGridPng(grid: RasterGrid, color: (value: number) => Rgba, 
     const lat = latFromMercatorY(yNorth - ((row + 0.5) / height) * (yNorth - ySouth));
     const fy = ((north - lat) / (north - south)) * grid.height;
     const crossings = clip ? crossingsAtLatitude(clip, lat) : null;
+    const excluded = exclude ? crossingsAtLatitude(exclude, lat) : null;
 
     for (let col = 0; col < width; col++) {
       const lng = west + ((col + 0.5) / width) * (east - west);
       const fx = ((lng - west) / (east - west)) * grid.width;
-      const inside = !crossings || isInsideCrossings(crossings, lng);
+      const inside = (!crossings || isInsideCrossings(crossings, lng)) && !(excluded && isInsideCrossings(excluded, lng));
       const value = inside ? sample(fy, fx) : Number.NaN;
       const [r, g, b, a] = valid(value) ? color(value) : TRANSPARENT;
 

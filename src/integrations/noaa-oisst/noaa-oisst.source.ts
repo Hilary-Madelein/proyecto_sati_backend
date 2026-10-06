@@ -1,9 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { fetchWithRetry } from '../../common/http/fetch-with-retry.js';
 import { UpstreamError } from '../../common/http/upstream.error.js';
 import type { RasterGrid } from '../../common/raster/raster-grid.js';
 import { AppConfigService } from '../../config/app-config.service.js';
 import { SeaTemperatureSource, type SeaTemperatureField } from '../../modules/sea-temperature/sea-temperature-source.js';
+import { latestOisstFile, parseOisstNetcdf } from './oisst-netcdf.js';
 
 const SERVICE = 'NOAA OISST';
 
@@ -14,19 +15,49 @@ const BBOX = { south: -10, north: 3, west: -90, east: -77 } as const;
 const key = (value: number) => Math.round(value * 1000);
 
 /**
- * NOAA OISST v2.1 (casi en tiempo real, ~1 día de retraso) del servidor ERDDAP de
- * CoastWatch: temperatura (`sst`) y anomalía (`anom`) en grilla de 0,25°, ya con la
- * tierra sin dato. Se pide el último día en un solo CSV pequeño (~100 KB).
+ * NOAA OISST v2.1 (casi en tiempo real, ~1 día de retraso): temperatura (`sst`)
+ * y anomalía (`anom`) en grilla de 0,25°, ya con la tierra sin dato.
+ *
+ * 1. Archivo diario oficial de NCEI (NetCDF-4, ~1,5 MB, global): es el origen
+ *    del producto y responde desde Ecuador.
+ * 2. Si NCEI falla, el mismo dato recortado del ERDDAP de CoastWatch (~100 KB),
+ *    que desde algunas redes no responde.
  */
 @Injectable()
 export class NoaaOisstSource extends SeaTemperatureSource {
   readonly attribution = 'Temperatura del mar: NOAA OISST v2.1';
+  private readonly logger = new Logger(NoaaOisstSource.name);
 
   constructor(private readonly config: AppConfigService) {
     super();
   }
 
   async getLatest(): Promise<SeaTemperatureField> {
+    try {
+      return await this.fromNceiFile();
+    } catch (error) {
+      this.logger.warn(`NCEI no respondió (${(error as Error).message}); se intenta con ERDDAP`);
+      return this.fromErddap();
+    }
+  }
+
+  /** Último archivo diario: se busca en la carpeta del mes actual y, a inicio de mes, en la del anterior. */
+  private async fromNceiFile(): Promise<SeaTemperatureField> {
+    const base = this.config.get('OISST_FILES_URL').replace(/\/+$/, '');
+    const now = new Date();
+    for (const monthsBack of [0, 1]) {
+      const month = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - monthsBack, 1));
+      const folder = `${base}/${month.toISOString().slice(0, 7).replace('-', '')}/`;
+      const listing = await (await fetchWithRetry(folder, { service: SERVICE, timeoutMs: 30_000 })).text();
+      const name = latestOisstFile(listing);
+      if (!name) continue;
+      const file = await fetchWithRetry(`${folder}${name}`, { service: SERVICE, timeoutMs: 60_000 });
+      return parseOisstNetcdf(await file.arrayBuffer(), [BBOX.west, BBOX.south, BBOX.east, BBOX.north]);
+    }
+    throw new UpstreamError(SERVICE, 'no hay archivos diarios recientes en NCEI');
+  }
+
+  private async fromErddap(): Promise<SeaTemperatureField> {
     // Los corchetes van codificados (%5B, %5D): ERDDAP rechaza los literales.
     const slice = `%5B(last)%5D%5B(0.0)%5D%5B(${BBOX.south}):(${BBOX.north})%5D%5B(${BBOX.west}):(${BBOX.east})%5D`;
     const url = `${this.config.get('OISST_ERDDAP_URL')}.csv?sst${slice},anom${slice}`;

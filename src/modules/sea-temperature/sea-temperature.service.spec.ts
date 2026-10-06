@@ -64,8 +64,9 @@ describe('SeaTemperatureService', () => {
     expect(meta).toMatchObject({ nino12Anomaly: 3, minAnomaly: 2, maxAnomaly: 4, isStale: false });
     expect(meta.legend.entries.length).toBeGreaterThan(2);
 
-    expect(await service.valueAt(-1.7, -80.8)).toMatchObject({ sst: 28, anomaly: 4 });
-    expect(await service.valueAt(-1.8, -80.6)).toMatchObject({ sst: null, anomaly: null });
+    // Mar abierto frente a Puerto López; la segunda está en tierra firme (costa real, no la grilla).
+    expect(await service.valueAt(-1.7, -80.95)).toMatchObject({ sst: 28, anomaly: 4 });
+    expect(await service.valueAt(-1.8, -80.55)).toMatchObject({ sst: null, anomaly: null });
     expect(source.calls).toBe(1);
   });
 
