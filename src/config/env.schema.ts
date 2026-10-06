@@ -121,6 +121,10 @@ export const envSchema = z.object({
   GEOGLOWS_API_URL: z.url().default('https://geoglows.ecmwf.int/api/v2'),
   /** Servidor de teselas del Hydroviewer del INAMHI (red de ríos y alertas). */
   HYDROVIEWER_TILES_URL: z.url().default('https://services.geoglows.org/martin'),
+
+  // ── Temperatura del mar (NOAA OISST, ERDDAP de CoastWatch) ───────────────
+  /** Dataset en tiempo casi real (~1 día de retraso), sin el sufijo del formato. La versión "final" llega ~15 días tarde. */
+  OISST_ERDDAP_URL: z.url().default('https://coastwatch.pfeg.noaa.gov/erddap/griddap/ncdcOisst21NrtAgg_LonPM180'),
 }).superRefine((env, ctx) => {
   if (env.STORAGE === 'postgres' && !env.DATABASE_URL) {
     ctx.addIssue({ code: 'custom', path: ['DATABASE_URL'], message: 'obligatoria cuando STORAGE=postgres' });

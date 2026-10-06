@@ -1,4 +1,4 @@
-import { BadRequestException, Controller, Get, Param, ParseIntPipe, Res, StreamableFile } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Param, ParseFloatPipe, ParseIntPipe, Query, Res, StreamableFile } from '@nestjs/common';
 import { ApiOperation, ApiProduces, ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { OBSERVED_HOURS, ObservedRainService, type ObservedHours } from './observed-rain.service.js';
@@ -25,6 +25,17 @@ export class ObservedRainController {
   @ApiOperation({ summary: 'Lluvia observada acumulada hasta la última hora: ventana, límites y ruta de la imagen' })
   accumulated(@Param('product') product: string, @Param('hours', ParseIntPipe) hours: number) {
     return this.rain.accumulated(product, toHours(hours));
+  }
+
+  @Get(':product/accumulated/:hours/value')
+  @ApiOperation({ summary: 'Lluvia observada acumulada en un punto (mm); mm es null fuera del Ecuador o sin dato' })
+  value(
+    @Param('product') product: string,
+    @Param('hours', ParseIntPipe) hours: number,
+    @Query('lat', ParseFloatPipe) lat: number,
+    @Query('lng', ParseFloatPipe) lng: number,
+  ) {
+    return this.rain.valueAt(product, toHours(hours), lat, lng);
   }
 
   @Get(':product/accumulated/:hours/image')

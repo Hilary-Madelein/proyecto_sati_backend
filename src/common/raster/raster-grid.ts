@@ -41,3 +41,13 @@ export function gridMax(grid: RasterGrid): number {
   for (const value of grid.values) if (Number.isFinite(value) && value !== grid.noData && value > max) max = value;
   return max;
 }
+
+/** Valor de la celda que contiene el punto; null si cae fuera de la grilla o la celda no tiene dato. */
+export function valueAt(grid: RasterGrid, lat: number, lng: number): number | null {
+  const [west, south, east, north] = grid.bbox;
+  if (lng < west || lng >= east || lat <= south || lat > north) return null;
+  const column = Math.floor(((lng - west) / (east - west)) * grid.width);
+  const row = Math.floor(((north - lat) / (north - south)) * grid.height);
+  const value = grid.values[row * grid.width + column];
+  return Number.isFinite(value) && value !== grid.noData ? value : null;
+}
