@@ -26,3 +26,14 @@ describe('envSchema · SNGR', () => {
     expect(env.SNGR_EVENTS_URL).toBe('https://monitoreocoe.gestionderiesgos.gob.ec/api/public/eventos_lluvias');
   });
 });
+
+describe('envSchema · correo', () => {
+  it('funciona sin SMTP (los correos van al log)', () => {
+    expect(envSchema.safeParse(base).success).toBe(true);
+  });
+
+  it('exige remitente y contraseña cuando hay servidor y usuario', () => {
+    const result = envSchema.safeParse({ ...base, SMTP_HOST: 'smtp.ejemplo.ec', SMTP_USER: 'alertas' });
+    expect(result.error?.issues.map((issue) => issue.path.join('.')).sort()).toEqual(['MAIL_FROM', 'SMTP_PASS']);
+  });
+});

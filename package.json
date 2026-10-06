@@ -1,4 +1,4 @@
-{
+ {
   "name": "proyecto_sati_backend",
   "version": "0.0.1",
   "description": "API del Sistema de alerta temprana de inundaciones para el Ecuador (SATI.EC)",
@@ -21,7 +21,8 @@
     "test:e2e": "vitest run --config ./vitest.config.e2e.ts",
     "migration:run": "npm run build && typeorm migration:run -d dist/database/data-source.js",
     "migration:revert": "npm run build && typeorm migration:revert -d dist/database/data-source.js",
-    "migration:create": "typeorm migration:create"
+    "migration:create": "typeorm migration:create",
+    "admin:create": "npm run build && node dist/cli/create-admin.js"
   },
   "dependencies": {
     "@mapbox/vector-tile": "^3.0.0",
@@ -38,6 +39,7 @@
     "class-validator": "^0.15.1",
     "fast-xml-parser": "^5.11.2",
     "geotiff": "^3.0.5",
+    "nodemailer": "^10.0.15",
     "pbf": "^5.1.2",
     "pg": "^8.23.1",
     "pngjs": "^7.0.0",
@@ -48,11 +50,11 @@
   },
   "devDependencies": {
     "@nestjs/cli": "^12.0.0",
-    "@nestjs/mau": "^0.2.6",
     "@nestjs/schematics": "^12.0.0",
     "@nestjs/testing": "^12.0.1",
     "@types/express": "^5.0.0",
     "@types/node": "^24.0.0",
+    "@types/nodemailer": "^8.0.2",
     "@types/pngjs": "^6.0.5",
     "@types/supertest": "^7.0.0",
     "@vitest/coverage-v8": "^4.1.2",

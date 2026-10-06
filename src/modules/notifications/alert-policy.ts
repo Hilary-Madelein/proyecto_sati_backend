@@ -42,5 +42,5 @@ function buildAlert(reason: HazardAlert['reason'], event: HazardEventEntity): Ha
     .filter(Boolean)
     .join('\n');
 
-  return { reason, event, subject, message };
+  return { key: `${event.id}:${reason}:${event.severity}`, reason, event, subject, message };
 }

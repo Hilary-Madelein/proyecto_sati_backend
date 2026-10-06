@@ -1,7 +1,9 @@
 import { Module } from '@nestjs/common';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ScheduleModule } from '@nestjs/schedule';
+import { AdminAuthModule } from './modules/admin-auth/admin-auth.module.js';
 import { AppConfigModule } from './config/config.module.js';
+import { EmailModule } from './integrations/email/email.module.js';
 import { GeoglowsModule } from './integrations/geoglows/geoglows.module.js';
 import { InamhiHydroviewerModule } from './integrations/inamhi-hydroviewer/inamhi-hydroviewer.module.js';
 import { InamhiWrfModule } from './integrations/inamhi-wrf/inamhi-wrf.module.js';
@@ -34,6 +36,7 @@ import { StorageModule } from './storage/storage.module.js';
     RainForecastModule,
     ObservedRainModule,
     NotificationsModule,
+    AdminAuthModule,
     HealthModule,
 
     // Integraciones con APIs externas: para agregar una, se importa aquí su módulo.
@@ -42,6 +45,7 @@ import { StorageModule } from './storage/storage.module.js';
     SatellitePrecipitationModule,
     GeoglowsModule,
     InamhiHydroviewerModule,
+    EmailModule,
   ],
 })
 export class AppModule {}

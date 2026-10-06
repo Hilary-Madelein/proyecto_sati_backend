@@ -64,8 +64,14 @@ export const envSchema = z.object({
 
   /** Ingesta: consultar todas las fuentes al arrancar, además de en su intervalo. */
   INGESTION_RUN_ON_STARTUP: booleanFlag(true),
-  /** Token para lanzar sincronizaciones manuales (POST /ingestion/...). Vacío = deshabilitado. */
+  /**
+   * Token para automatizaciones (p. ej. un cron externo que lance POST /ingestion/...).
+   * No es una contraseña de personas: el panel usa cuentas con correo y contraseña.
+   * Vacío = deshabilitado.
+   */
   ADMIN_TOKEN: z.string().min(24).optional().or(z.literal('').transform(() => undefined)),
+  /** Horas que dura una sesión del panel de administración. */
+  ADMIN_SESSION_HOURS: z.coerce.number().int().min(1).max(72).default(8),
 
   // ── SNGR: eventos por lluvias (API de monitoreo del COE) ──────────────────
   SNGR_ENABLED: booleanFlag(true),
@@ -96,6 +102,20 @@ export const envSchema = z.object({
     .url()
     .default('http://services.geoglows.org:8080/geoserver/satellite_based_precipitation/wcs'),
 
+  // ── Notificaciones por correo (SMTP) ─────────────────────────────────────
+  /** Servidor SMTP (p. ej. smtp.gmail.com, smtp-relay.brevo.com). Vacío = los correos solo van al log. */
+  SMTP_HOST: z.string().optional().or(z.literal('').transform(() => undefined)),
+  /** 587 con STARTTLS (SMTP_SECURE=false) o 465 con TLS (SMTP_SECURE=true). */
+  SMTP_PORT: z.coerce.number().int().positive().default(587),
+  SMTP_SECURE: booleanFlag(false),
+  /** Credenciales del servidor de correo (secretas: solo en .env). */
+  SMTP_USER: z.string().optional().or(z.literal('').transform(() => undefined)),
+  SMTP_PASS: z.string().optional().or(z.literal('').transform(() => undefined)),
+  /** Remitente, p. ej. "SATI.EC <alertas@ejemplo.ec>". Obligatorio si hay SMTP_HOST. */
+  MAIL_FROM: z.string().optional().or(z.literal('').transform(() => undefined)),
+  /** Dirección pública del mapa, para el enlace "Ver en el mapa" de los correos. */
+  APP_PUBLIC_URL: z.url().optional().or(z.literal('').transform(() => undefined)),
+
   // ── Caudales ─────────────────────────────────────────────────────────────
   /** API pública de GEOGLOWS (pronóstico de caudal por tramo de río). */
   GEOGLOWS_API_URL: z.url().default('https://geoglows.ecmwf.int/api/v2'),
@@ -104,6 +124,12 @@ export const envSchema = z.object({
 }).superRefine((env, ctx) => {
   if (env.STORAGE === 'postgres' && !env.DATABASE_URL) {
     ctx.addIssue({ code: 'custom', path: ['DATABASE_URL'], message: 'obligatoria cuando STORAGE=postgres' });
+  }
+  if (env.SMTP_HOST && !env.MAIL_FROM) {
+    ctx.addIssue({ code: 'custom', path: ['MAIL_FROM'], message: 'obligatorio cuando hay SMTP_HOST' });
+  }
+  if (env.SMTP_USER && !env.SMTP_PASS) {
+    ctx.addIssue({ code: 'custom', path: ['SMTP_PASS'], message: 'obligatoria cuando hay SMTP_USER' });
   }
   if (!env.SNGR_ENABLED) return;
   for (const key of ['SNGR_USUARIO', 'SNGR_CLAVE'] as const) {

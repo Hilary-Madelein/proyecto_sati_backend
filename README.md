@@ -11,10 +11,13 @@ NestJS 12 (ESM) · TypeORM · PostgreSQL 14+ con PostGIS · Node 24.
 Requisito: Node 24 (`nvm use`). La base de datos es opcional.
 
 ```bash
-# crea .env con SNGR_USUARIO y SNGR_CLAVE (y ADMIN_TOKEN si lo usarás)
+# crea .env con SNGR_USUARIO y SNGR_CLAVE
 npm install
+npm run admin:create   # primera cuenta del panel de administración (pide correo y contraseña)
 npm run start:dev
 ```
+
+Con `STORAGE=memory`, ejecuta `npm run admin:create` con el servidor detenido.
 
 ### Almacenamiento (`STORAGE`)
 
@@ -54,7 +57,7 @@ src/
 │   ├── map-layers/    Capas WMS y teselas vectoriales: disponibilidad, leyenda y proxy seguro
 │   ├── hydrology/     Caudales de ríos: alertas por periodo de retorno e hidrogramas
 │   ├── rain-forecast/ Lluvia pronosticada del WRF en tramos de 24 h (0–24, 24–48, 48–72 h)
-│   ├── notifications/ Regla de alertas y canales de envío (log hoy, correo después)
+│   ├── notifications/ Regla de alertas, suscriptores por provincia, envío por correo e historial
 │   └── health/        Estado del servicio y la BD
 └── integrations/      Un adaptador por API externa
     ├── sngr/                     Eventos adversos de la SNGR
@@ -73,7 +76,7 @@ SNGR ──► SngrEventSource ──► IngestionService ──► EventsServic
                                                          │                    ▼
                                     aviso "hazard-event.created/updated"   GET /events
                                                          ▼
-                                              NotificationsService ──► canales (log, correo…)
+                                              NotificationsService ──► correo (Nodemailer/SMTP)
 ```
 
 Principios:
@@ -113,10 +116,11 @@ Crea una clase con `@MapLayerProvider()` que devuelva sus `MapLayerDefinition`
 (ver `integrations/inamhi-wrf/wrf-layers.provider.ts`) e importa su módulo. Queda
 disponible en `GET /layers`, `/layers/:id`, `/layers/:id/legend` y `/layers/:id/wms`.
 
-### Un canal de notificación (p. ej. correo)
+### Un canal de notificación (p. ej. SMS)
 
 Crea una clase con `@NotificationChannel()` que implemente `NotificationChannelAdapter`
-(`send(alert)`) y regístrala en `NotificationsModule`. Recibirá todas las alertas.
+(`send(alert, recipient)`) y regístrala en `NotificationsModule`. Recibirá cada alerta
+para cada suscriptor interesado; el historial y el "no repetir" ya los maneja el servicio.
 
 ### Otro proveedor de caudales
 
@@ -154,6 +158,17 @@ patrón: un contrato para sus fuentes y adaptadores en `integrations/`.
 | GET | `/api/v1/ingestion/runs` | Historial de sincronizaciones |
 | POST | `/api/v1/ingestion/sources/:key/run` | Sincronización manual (cabecera `x-admin-token`) |
 | GET | `/api/v1/health` | Estado del servicio y la BD |
+| POST | `/api/v1/admin/auth/login` | Inicio de sesión de un administrador (correo y contraseña) → token de sesión |
+| GET · POST | `/api/v1/admin/auth/me` · `/logout` · `/password` | Cuenta actual, cerrar sesión, cambiar la propia contraseña (sesión) |
+| GET · POST · PATCH · DELETE | `/api/v1/admin/users` (`/:id`, `/:id/password`) | Cuentas de administración (sesión) |
+| GET | `/api/v1/notifications/summary` | Resumen para el panel: suscriptores, envíos de 7 días, estado del SMTP (sesión) |
+| GET · POST | `/api/v1/notifications/subscribers` | Listar y registrar suscriptores de alertas (sesión) |
+| GET · PATCH · DELETE | `/api/v1/notifications/subscribers/:id` | Ver, editar o eliminar un suscriptor (sesión) |
+| GET | `/api/v1/notifications/deliveries?status=` | Historial de envíos, opcionalmente solo enviados o fallidos (sesión) |
+| POST | `/api/v1/notifications/test` | Correo de prueba para verificar el SMTP (sesión) |
+
+«Sesión» = cabecera `Authorization: Bearer <token>` con el token de `POST /admin/auth/login`.
+`x-admin-token` (`ADMIN_TOKEN`) queda solo para automatizaciones, como lanzar una sincronización desde un cron.
 
 ## Severidad de los eventos
 
@@ -178,6 +193,7 @@ Se alerta solo por eventos **abiertos**, **críticos o altos** y ocurridos en la
 | `npm test` | Tests unitarios (Vitest) |
 | `npm run lint` | Linter (oxlint) |
 | `npm run migration:run` | Aplicar migraciones manualmente |
+| `npm run admin:create` | Crear una cuenta de administración, o poner contraseña nueva a una existente (recuperar acceso) |
 | `npm run migration:create -- src/database/migrations/<Nombre>` | Crear una migración nueva (y agregarla a `database.options.ts`) |
 
 ## Despliegue
