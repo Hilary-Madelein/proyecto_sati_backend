@@ -1,6 +1,6 @@
 import { PNG } from 'pngjs';
 import { createColorRamp } from './color-ramp.js';
-import { gridMax, sumGrids, type RasterGrid } from './raster-grid.js';
+import { gridMax, sumGrids, valueAt, type RasterGrid } from './raster-grid.js';
 import { renderGridPng } from './render-png.js';
 
 const grid = (values: number[], noData: number | null = null): RasterGrid => ({
@@ -17,6 +17,23 @@ describe('sumGrids', () => {
     expect(Array.from(total.values.slice(0, 3))).toEqual([11, 22, 33]);
     expect(Number.isNaN(total.values[3])).toBe(true);
     expect(gridMax(total)).toBe(33);
+  });
+});
+
+describe('valueAt', () => {
+  // bbox [-80, -2, -78, 0]: fila 0 = norte; cada celda de 1° × 1°.
+  const g = grid([1, 2, 3, -9999], -9999);
+
+  it('devuelve la celda que contiene el punto', () => {
+    expect(valueAt(g, -0.5, -79.5)).toBe(1);
+    expect(valueAt(g, -0.5, -78.5)).toBe(2);
+    expect(valueAt(g, -1.5, -79.5)).toBe(3);
+  });
+
+  it('devuelve null sin dato o fuera de la grilla', () => {
+    expect(valueAt(g, -1.5, -78.5)).toBeNull();
+    expect(valueAt(g, 1, -79)).toBeNull();
+    expect(valueAt(g, -1, -70)).toBeNull();
   });
 });
 

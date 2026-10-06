@@ -2,9 +2,10 @@ import { BadGatewayException, Injectable, NotFoundException } from '@nestjs/comm
 import { mapWithConcurrency } from '../../common/async/map-with-concurrency.js';
 import { TtlCache } from '../../common/cache/ttl-cache.js';
 import { ECUADOR_RINGS } from '../../common/geo/ecuador-boundary.js';
+import { isInsideRings } from '../../common/geo/polygon.js';
 import { UpstreamError } from '../../common/http/upstream.error.js';
 import { createColorRamp } from '../../common/raster/color-ramp.js';
-import { gridMax, sumGrids } from '../../common/raster/raster-grid.js';
+import { gridMax, sumGrids, valueAt, type RasterGrid } from '../../common/raster/raster-grid.js';
 import { renderGridPng } from '../../common/raster/render-png.js';
 import { ObservedRainSource, type ObservedRainProduct } from './observed-rain-source.js';
 
@@ -62,9 +63,20 @@ export interface ObservedAccumulatedRain {
   imagePath: string;
 }
 
+/** Lluvia observada acumulada en un punto. */
+export interface ObservedRainPoint {
+  product: string;
+  hours: ObservedHours;
+  from: string;
+  to: string;
+  /** Lluvia acumulada en la celda del punto (mm); null fuera del Ecuador o sin dato. */
+  mm: number | null;
+}
+
 interface Rendered {
   meta: ObservedAccumulatedRain;
   png: Buffer;
+  grid: RasterGrid;
 }
 
 export interface HourlyWindow {
@@ -123,6 +135,18 @@ export class ObservedRainService {
     return (await this.render(product, hours)).png;
   }
 
+  async valueAt(product: string, hours: ObservedHours, lat: number, lng: number): Promise<ObservedRainPoint> {
+    const { meta, grid } = await this.render(product, hours);
+    const value = isInsideRings(ECUADOR_RINGS, lng, lat) ? valueAt(grid, lat, lng) : null;
+    return {
+      product: meta.product,
+      hours,
+      from: meta.from,
+      to: meta.to,
+      mm: value === null ? null : Math.round(value * 10) / 10,
+    };
+  }
+
   private async status(product: ObservedRainProduct): Promise<ObservedProductStatus> {
     // Si un producto falla, se informa sin datos en vez de tumbar la respuesta completa.
     const times = await this.source.getHourlyTimes(product.key).catch(() => [] as string[]);
@@ -167,6 +191,7 @@ export class ObservedRainService {
         const [west, south, east, north] = total.bbox;
         return {
           png: renderGridPng(total, createColorRamp(stops), RENDER_OPTIONS),
+          grid: total,
           meta: {
             product: product.key,
             hours,

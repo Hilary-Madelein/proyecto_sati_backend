@@ -1,9 +1,10 @@
 import { BadGatewayException, Injectable, NotFoundException } from '@nestjs/common';
 import { TtlCache } from '../../common/cache/ttl-cache.js';
 import { ECUADOR_RINGS } from '../../common/geo/ecuador-boundary.js';
+import { isInsideRings } from '../../common/geo/polygon.js';
 import { UpstreamError } from '../../common/http/upstream.error.js';
 import { createColorRamp } from '../../common/raster/color-ramp.js';
-import { gridMax } from '../../common/raster/raster-grid.js';
+import { gridMax, valueAt, type RasterGrid } from '../../common/raster/raster-grid.js';
 import { renderGridPng } from '../../common/raster/render-png.js';
 import { RainForecastSource, type ForecastRun } from './rain-forecast-source.js';
 
@@ -49,9 +50,20 @@ export interface DailyRainForecast {
   imagePath: string;
 }
 
+/** Lluvia pronosticada del día en un punto. */
+export interface RainForecastPoint {
+  run: string;
+  day: ForecastDay;
+  from: string;
+  to: string;
+  /** Lluvia del día en la celda del punto (mm); null fuera del Ecuador o sin dato. */
+  mm: number | null;
+}
+
 interface Rendered {
   meta: DailyRainForecast;
   png: Buffer;
+  grid: RasterGrid;
 }
 
 /**
@@ -94,6 +106,18 @@ export class RainForecastService {
     return (await this.render(day)).png;
   }
 
+  async valueAt(day: ForecastDay, lat: number, lng: number): Promise<RainForecastPoint> {
+    const { meta, grid } = await this.render(day);
+    const value = isInsideRings(ECUADOR_RINGS, lng, lat) ? valueAt(grid, lat, lng) : null;
+    return {
+      run: meta.run,
+      day,
+      from: meta.from,
+      to: meta.to,
+      mm: value === null ? null : Math.round(value * 10) / 10,
+    };
+  }
+
   private async render(day: ForecastDay): Promise<Rendered> {
     const run = await this.latestRun();
     const time = run ? this.timeFor(run, day) : null;
@@ -105,6 +129,7 @@ export class RainForecastService {
         const [west, south, east, north] = grid.bbox;
         return {
           png: renderGridPng(grid, createColorRamp(stops), RENDER_OPTIONS),
+          grid,
           meta: {
             run: run.run,
             day,

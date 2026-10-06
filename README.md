@@ -54,6 +54,7 @@ src/
 │   ├── map-layers/    Capas WMS y teselas vectoriales: disponibilidad, leyenda y proxy seguro
 │   ├── hydrology/     Caudales de ríos: alertas por periodo de retorno e hidrogramas
 │   ├── rain-forecast/ Lluvia pronosticada del WRF en tramos de 24 h (0–24, 24–48, 48–72 h)
+│   ├── sea-temperature/ Anomalía de la temperatura del mar frente a Ecuador (indicador de El Niño)
 │   ├── notifications/ Regla de alertas y canales de envío (log hoy, correo después)
 │   └── health/        Estado del servicio y la BD
 └── integrations/      Un adaptador por API externa
@@ -143,10 +144,15 @@ patrón: un contrato para sus fuentes y adaptadores en `integrations/`.
 | GET | `/api/v1/layers/:id/tiles/:z/:x/:y` | Proxy de teselas vectoriales (red de ríos) |
 | GET | `/api/v1/rain-forecast` | Corrida vigente del WRF y días disponibles (1, 2, 3) |
 | GET | `/api/v1/rain-forecast/days/:day` | Lluvia de un solo día: ventana, límites, máximo y ruta de la imagen |
+| GET | `/api/v1/rain-forecast/days/:day/value?lat=&lng=` | Lluvia pronosticada del día en un punto (mm); `null` fuera del Ecuador o sin dato |
 | GET | `/api/v1/rain-forecast/days/:day/image` | Imagen PNG de la lluvia del día para superponer en el mapa |
 | GET | `/api/v1/observed-rain` | Lluvia observada por satélite: última hora y ventanas 24/48/72 h por producto |
 | GET | `/api/v1/observed-rain/:product/accumulated/:hours` | Lluvia observada hasta la última hora: ventana, máximo y ruta de la imagen |
+| GET | `/api/v1/observed-rain/:product/accumulated/:hours/value?lat=&lng=` | Lluvia observada acumulada en un punto (mm); `null` fuera del Ecuador o sin dato |
 | GET | `/api/v1/observed-rain/:product/accumulated/:hours/image` | Imagen PNG de la lluvia observada acumulada |
+| GET | `/api/v1/sea-temperature` | Anomalía de la temperatura del mar (NOAA OISST): día del dato, anomalía de Niño 1+2, límites, leyenda y ruta de la imagen |
+| GET | `/api/v1/sea-temperature/value?lat=&lng=` | Temperatura y anomalía del mar en un punto (°C); `null` en tierra |
+| GET | `/api/v1/sea-temperature/image` | Imagen PNG de la anomalía del mar |
 | GET | `/api/v1/rivers/alerts` | Tramos con alerta por caudal, por día del último pronóstico (14 días) |
 | GET | `/api/v1/rivers/at?lat=&lng=` | Tramo de río más cercano a un punto y su alerta |
 | GET | `/api/v1/rivers/:riverId/forecast` | Pronóstico de caudal (ensamble y alta resolución, 15 días) |

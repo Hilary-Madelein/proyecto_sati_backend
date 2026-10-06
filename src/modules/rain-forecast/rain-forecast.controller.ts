@@ -1,4 +1,4 @@
-import { BadRequestException, Controller, Get, Param, ParseIntPipe, Res, StreamableFile } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Param, ParseFloatPipe, ParseIntPipe, Query, Res, StreamableFile } from '@nestjs/common';
 import { ApiOperation, ApiProduces, ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { FORECAST_DAYS, RainForecastService, type ForecastDay } from './rain-forecast.service.js';
@@ -25,6 +25,16 @@ export class RainForecastController {
   @ApiOperation({ summary: 'Lluvia pronosticada de un solo día: ventana, límites, máximo y ruta de la imagen' })
   daily(@Param('day', ParseIntPipe) day: number) {
     return this.rain.daily(toDay(day));
+  }
+
+  @Get('days/:day/value')
+  @ApiOperation({ summary: 'Lluvia pronosticada del día en un punto (mm); mm es null fuera del Ecuador o sin dato' })
+  value(
+    @Param('day', ParseIntPipe) day: number,
+    @Query('lat', ParseFloatPipe) lat: number,
+    @Query('lng', ParseFloatPipe) lng: number,
+  ) {
+    return this.rain.valueAt(toDay(day), lat, lng);
   }
 
   @Get('days/:day/image')
