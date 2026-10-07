@@ -36,4 +36,10 @@ export class HydrologyController {
   forecast(@Param('riverId', ParseIntPipe) riverId: number) {
     return this.hydrology.getForecast(riverId);
   }
+
+  @Get(':riverId/return-periods')
+  @ApiOperation({ summary: 'Caudales de los periodos de retorno de un tramo (2 a 100 años). La primera consulta tarda ~16 s' })
+  returnPeriods(@Param('riverId', ParseIntPipe) riverId: number) {
+    return this.hydrology.getReturnPeriods(riverId);
+  }
 }

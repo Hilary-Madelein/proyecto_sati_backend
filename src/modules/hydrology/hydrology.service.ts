@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { TtlCache } from '../../common/cache/ttl-cache.js';
 import { UpstreamError } from '../../common/http/upstream.error.js';
-import type { RiverAlert, RiverAlertsSnapshot, RiverForecast } from './domain/river.js';
+import type { RiverAlert, RiverAlertsSnapshot, RiverForecast, RiverReturnPeriods } from './domain/river.js';
 import { RiverAlertSource, RiverForecastSource } from './river-sources.js';
 
 const MINUTE_MS = 60 * 1000;
@@ -23,6 +23,8 @@ export class HydrologyService implements OnApplicationBootstrap, OnModuleDestroy
   private alertsCache = new TtlCache<RiverAlertsSnapshot>(30 * MINUTE_MS, 1);
   private readonly forecastCache = new TtlCache<RiverForecast>(30 * MINUTE_MS);
   private readonly riverIdCache = new TtlCache<number | null>(24 * 60 * MINUTE_MS, 5_000);
+  // Salen de 45 años de simulación histórica: casi no cambian y cuestan ~16 s por río.
+  private readonly returnPeriodsCache = new TtlCache<RiverReturnPeriods>(30 * 24 * 60 * MINUTE_MS, 2_000);
 
   constructor(
     private readonly forecasts: RiverForecastSource,
@@ -53,6 +55,10 @@ export class HydrologyService implements OnApplicationBootstrap, OnModuleDestroy
 
   getForecast(riverId: number): Promise<RiverForecast> {
     return this.upstream(this.forecastCache.get(String(riverId), () => this.forecasts.getForecast(riverId)));
+  }
+
+  getReturnPeriods(riverId: number): Promise<RiverReturnPeriods> {
+    return this.upstream(this.returnPeriodsCache.get(String(riverId), () => this.forecasts.getReturnPeriods(riverId)));
   }
 
   /** Descarga las alertas en segundo plano y solo reemplaza la caché si salió bien. */
