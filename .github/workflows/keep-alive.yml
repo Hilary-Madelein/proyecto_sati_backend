@@ -3,8 +3,8 @@
 # Llama a /api/v1/health cada 10 minutos.
 #
 # Configuración (una sola vez): en GitHub → Settings → Secrets and variables →
-# Actions → pestaña "Variables" → New repository variable:
-#   BACKEND_URL = https://<tu-servicio>.onrender.com   (sin "/" al final)
+# Actions → crear BACKEND_URL = https://<tu-servicio>.onrender.com (sin "/" al
+# final), en la pestaña "Secrets" o en "Variables": sirve cualquiera de las dos.
 #
 # GitHub solo ejecuta los workflows programados desde la rama por defecto (main).
 name: Mantener despierto el backend
@@ -24,10 +24,10 @@ jobs:
     steps:
       - name: Llamar a /api/v1/health
         env:
-          BACKEND_URL: ${{ vars.BACKEND_URL }}
+          BACKEND_URL: ${{ vars.BACKEND_URL || secrets.BACKEND_URL }}
         run: |
           if [ -z "$BACKEND_URL" ]; then
-            echo "::error::Falta la variable BACKEND_URL (Settings → Secrets and variables → Actions → Variables)"
+            echo "::error::Falta BACKEND_URL (Settings → Secrets and variables → Actions, en Secrets o en Variables)"
             exit 1
           fi
           # Si estaba dormido, Render tarda ~1 minuto en despertarlo: se reintenta con calma.
