@@ -119,6 +119,8 @@ export const envSchema = z.object({
   // ── Caudales ─────────────────────────────────────────────────────────────
   /** API pública de GEOGLOWS (pronóstico de caudal por tramo de río). */
   GEOGLOWS_API_URL: z.url().default('https://geoglows.ecmwf.int/api/v2'),
+  /** Archivo público de pronósticos pasados de GEOGLOWS v2 (un Zarr por corrida, desde julio de 2024). */
+  GEOGLOWS_FORECAST_ARCHIVE_URL: z.url().default('https://geoglows-v2-forecasts.s3.us-west-2.amazonaws.com'),
   /** Servidor de teselas del Hydroviewer del INAMHI (red de ríos y alertas). */
   HYDROVIEWER_TILES_URL: z.url().default('https://services.geoglows.org/martin'),
 

@@ -159,7 +159,14 @@ patrón: un contrato para sus fuentes y adaptadores en `integrations/`.
 | GET | `/api/v1/sea-temperature/image` | Imagen PNG de la anomalía del mar |
 | GET | `/api/v1/rivers/alerts` | Tramos con alerta por caudal, por día del último pronóstico (14 días) |
 | GET | `/api/v1/rivers/at?lat=&lng=` | Tramo de río más cercano a un punto y su alerta |
-| GET | `/api/v1/rivers/:riverId/forecast` | Pronóstico de caudal (ensamble y alta resolución, 15 días) |
+| GET | `/api/v1/rivers/:riverId/forecast` | Pronóstico de caudal (ensamble y alta resolución, 15 días) y condiciones antecedentes |
+| GET | `/api/v1/rivers/:riverId/return-periods` | Caudales de 2 a 100 años (Gumbel, simulación histórica 1980–hoy; ~16 s la primera vez, luego 30 días en caché) |
+| GET | `/api/v1/rivers/forecast-runs` | Corridas de pronóstico pasadas disponibles: las recientes por la API de GEOGLOWS y las anteriores (desde jul. 2024) en su archivo AWS |
+| GET | `/api/v1/rivers/:riverId/forecast-runs/:date` | Lo que pronosticaba la corrida de esa fecha (AAAA-MM-DD) para el tramo: estadísticas del ensamble y alta resolución |
+| GET | `/api/v1/rivers/:riverId/forecast-runs/:date/members` | Los 52 miembros de esa corrida (51 del ensamble + alta resolución) |
+
+Las corridas del archivo AWS (anteriores a ~2 meses) tardan de 10 a 75 s la primera vez: se descarga un bloque Zarr de ~15 MB
+(y, una sola vez, el índice de ríos de ~17 MB). Después quedan en caché.
 | GET | `/api/v1/ingestion/sources` | Fuentes y su última sincronización |
 | GET | `/api/v1/ingestion/runs` | Historial de sincronizaciones |
 | POST | `/api/v1/ingestion/sources/:key/run` | Sincronización manual (cabecera `x-admin-token`) |

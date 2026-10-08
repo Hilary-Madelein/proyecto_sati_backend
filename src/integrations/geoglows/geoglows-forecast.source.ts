@@ -18,6 +18,9 @@ const SERVICE = 'GEOGLOWS';
 const ANTECEDENT_DAYS = 8;
 /** Años de la simulación histórica para los periodos de retorno (como el Hydroviewer del INAMHI). */
 const RETURN_PERIODS_FROM_YEAR = 1980;
+/** Días hacia atrás que se prueban si la corrida más reciente falla. */
+const FALLBACK_DAYS = 2;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Pronóstico de caudal de la API pública de GEOGLOWS (v2): 15 días cada 3 h
@@ -40,8 +43,8 @@ export class GeoglowsForecastSource extends RiverForecastSource {
   }
 
   async getForecast(riverId: number): Promise<RiverForecast> {
-    const [statsResponse, antecedent] = await Promise.all([
-      this.get(`forecaststats/${riverId}`, { format: 'json' }),
+    const [{ response: statsResponse, fallbackRun }, antecedent] = await Promise.all([
+      this.getLatestStats(riverId),
       this.getAntecedent(riverId),
     ]);
     const parsed = forecastStatsSchema.safeParse(statsResponse);
@@ -67,7 +70,32 @@ export class GeoglowsForecastSource extends RiverForecastSource {
         antecedent && stats.datetime[0]
           ? antecedentConditions(antecedent.datetime, antecedent.average_flow, stats.datetime[0], ANTECEDENT_DAYS)
           : null,
+      fallbackRun,
     };
+  }
+
+  /**
+   * Estadísticas de la corrida más reciente. GEOGLOWS a veces lista la corrida
+   * del día antes de que se pueda leer ("Error while reading data from the zarr
+   * files", HTTP 400 para todos los ríos): entonces se usa la del día anterior.
+   */
+  private async getLatestStats(riverId: number): Promise<{ response: unknown; fallbackRun: string | null }> {
+    try {
+      return { response: await this.get(`forecaststats/${riverId}`, { format: 'json' }), fallbackRun: null };
+    } catch (error) {
+      if (!(error instanceof UpstreamError) || (error.status !== undefined && error.status < 400)) throw error;
+      for (let back = 1; back <= FALLBACK_DAYS; back++) {
+        const date = new Date(Date.now() - back * DAY_MS).toISOString().slice(0, 10).replaceAll('-', '');
+        try {
+          const response = await this.get(`forecaststats/${riverId}`, { format: 'json', date });
+          this.logger.warn(`La corrida más reciente de GEOGLOWS falló (${error.message}); se usa la del ${date}`);
+          return { response, fallbackRun: date };
+        } catch {
+          // Se prueba un día más atrás.
+        }
+      }
+      throw error;
+    }
   }
 
   /** Máximos anuales de la simulación histórica diaria (~16 s y ~0,5 MB: el servicio la cachea). */

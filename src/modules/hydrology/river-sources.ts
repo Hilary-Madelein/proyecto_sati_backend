@@ -1,4 +1,12 @@
-import type { RiverAlertsSnapshot, RiverForecast, RiverReturnPeriods } from './domain/river.js';
+import type {
+  ArchivedRiverForecast,
+  ForecastRun,
+  ForecastRunsCatalog,
+  RiverAlertsSnapshot,
+  RiverForecast,
+  RiverForecastMembers,
+  RiverReturnPeriods,
+} from './domain/river.js';
 
 /**
  * Contratos que implementan las integraciones de hidrología. El dominio solo
@@ -15,4 +23,14 @@ export abstract class RiverForecastSource {
 export abstract class RiverAlertSource {
   /** Alertas del pronóstico más reciente disponible. */
   abstract getLatestAlerts(): Promise<RiverAlertsSnapshot>;
+}
+
+/** Pronósticos ya emitidos (corridas pasadas), para consultarlos o compararlos. */
+export abstract class RiverForecastArchive {
+  /** Corridas disponibles, de la más reciente a la más antigua. */
+  abstract listRuns(): Promise<ForecastRunsCatalog>;
+  /** Estadísticas del ensamble de una corrida para un tramo. */
+  abstract getRunForecast(riverId: number, run: ForecastRun): Promise<ArchivedRiverForecast>;
+  /** Los 52 miembros de una corrida para un tramo. */
+  abstract getRunMembers(riverId: number, run: ForecastRun): Promise<RiverForecastMembers>;
 }
