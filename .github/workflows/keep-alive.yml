@@ -1,0 +1,35 @@
+# Mantiene despierto el backend en el plan gratis de Render, que se duerme tras
+# 15 minutos sin visitas (y entonces deja de sincronizar los eventos de la SNGR).
+# Llama a /api/v1/health cada 10 minutos.
+#
+# Configuración (una sola vez): en GitHub → Settings → Secrets and variables →
+# Actions → pestaña "Variables" → New repository variable:
+#   BACKEND_URL = https://<tu-servicio>.onrender.com   (sin "/" al final)
+#
+# GitHub solo ejecuta los workflows programados desde la rama por defecto (main).
+name: Mantener despierto el backend
+
+on:
+  schedule:
+    # Cada 10 minutos: GitHub a veces retrasa unos minutos los programados,
+    # así queda margen antes de los 15 minutos de Render.
+    - cron: "*/10 * * * *"
+  # Botón "Run workflow" para probarlo a mano.
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Llamar a /api/v1/health
+        env:
+          BACKEND_URL: ${{ vars.BACKEND_URL }}
+        run: |
+          if [ -z "$BACKEND_URL" ]; then
+            echo "::error::Falta la variable BACKEND_URL (Settings → Secrets and variables → Actions → Variables)"
+            exit 1
+          fi
+          # Si estaba dormido, Render tarda ~1 minuto en despertarlo: se reintenta con calma.
+          curl --fail --silent --show-error --retry 4 --retry-delay 20 --retry-all-errors --max-time 90 \
+            "${BACKEND_URL%/}/api/v1/health"
