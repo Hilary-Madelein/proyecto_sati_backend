@@ -24,7 +24,9 @@ export class EventsService {
   /**
    * Guarda un lote de eventos de una misma fuente: inserta los nuevos,
    * actualiza los que cambiaron y solo marca como vistos los demás. Los avisos
-   * `hazard-event.*` se emiten después de guardar.
+   * `hazard-event.*` se emiten después de guardar y se ESPERAN (`emitAsync`):
+   * así las notificaciones terminan antes de que la sincronización responda,
+   * también en plataformas sin servidor que apagan la función al responder.
    */
   async upsertMany(source: string, items: NormalizedEvent[]): Promise<UpsertResult> {
     const unique = new Map(items.map((item) => [item.externalId, item]));
@@ -56,10 +58,10 @@ export class EventsService {
     await this.store.save({ upserts: [...created, ...updated.map(({ event }) => event)], seenIds, seenAt: now });
 
     for (const event of created) {
-      this.emitter.emit(HazardEventTopics.created, { event } satisfies HazardEventCreated);
+      await this.emitter.emitAsync(HazardEventTopics.created, { event } satisfies HazardEventCreated);
     }
     for (const payload of updated) {
-      this.emitter.emit(HazardEventTopics.updated, payload);
+      await this.emitter.emitAsync(HazardEventTopics.updated, payload);
     }
 
     return { created: created.length, updated: updated.length, unchanged: seenIds.length };

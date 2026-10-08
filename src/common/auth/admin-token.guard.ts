@@ -6,9 +6,10 @@ import { AppConfigService } from '../../config/app-config.service.js';
 export const ADMIN_TOKEN_HEADER = 'x-admin-token';
 
 /**
- * Protege acciones administrativas con un token fijo (ADMIN_TOKEN) en la
- * cabecera `x-admin-token`. Si ADMIN_TOKEN no está definido, las rechaza todas.
- * Cuando exista autenticación de usuarios, se reemplaza por roles.
+ * Protege acciones para automatizaciones (p. ej. un cron que lanza una
+ * sincronización) con un token fijo (ADMIN_TOKEN) en la cabecera
+ * `x-admin-token`. Si ADMIN_TOKEN no está definido, las rechaza todas.
+ * Las personas no lo usan: el panel entra con cuentas (ver AdminSessionGuard).
  */
 @Injectable()
 export class AdminTokenGuard implements CanActivate {

@@ -11,10 +11,13 @@ NestJS 12 (ESM) · TypeORM · PostgreSQL 14+ con PostGIS · Node 24.
 Requisito: Node 24 (`nvm use`). La base de datos es opcional.
 
 ```bash
-cp .env.example .env          # completa SNGR_TOKEN y SNGR_USUARIO (y ADMIN_TOKEN si lo usarás)
+# crea .env con SNGR_USUARIO y SNGR_CLAVE
 npm install
+npm run admin:create   # primera cuenta del panel de administración (pide correo y contraseña)
 npm run start:dev
 ```
+
+Con `STORAGE=memory`, ejecuta `npm run admin:create` con el servidor detenido.
 
 ### Almacenamiento (`STORAGE`)
 
@@ -34,11 +37,11 @@ npm run start:dev
 El dominio solo depende de los contratos `EventStore`, `SyncRunStore` y `SourceLock`;
 `src/storage/memory` y `src/storage/postgres` los implementan.
 
-- API: <http://localhost:5000/api/v1>
-- Documentación interactiva (Swagger): <http://localhost:5000/api/docs>
+- API: <http://localhost:4000/api/v1>
+- Documentación interactiva (Swagger): <http://localhost:4000/api/docs>
 
-La primera vez se cargan los últimos `SNGR_BACKFILL_DAYS` días de la SNGR; puede
-tardar unos minutos porque la SNGR responde lento (15–60 s por consulta).
+En cada sincronización se consultan los últimos `SNGR_BACKFILL_DAYS` días de la SNGR
+(API de eventos por lluvias: login con usuario y clave → token → consulta por fechas).
 
 ## Arquitectura
 
@@ -53,12 +56,14 @@ src/
 │   ├── ingestion/     Descubre las fuentes, las programa y guarda cada sincronización
 │   ├── map-layers/    Capas WMS y teselas vectoriales: disponibilidad, leyenda y proxy seguro
 │   ├── hydrology/     Caudales de ríos: alertas por periodo de retorno e hidrogramas
+│   ├── rain-forecast/ Lluvia pronosticada del WRF en tramos de 24 h (0–24, 24–48, 48–72 h)
+│   ├── sea-temperature/ Anomalía de la temperatura del mar frente a Ecuador (indicador de El Niño)
 │   ├── notifications/ Regla de alertas y canales de envío (log hoy, correo después)
 │   └── health/        Estado del servicio y la BD
 └── integrations/      Un adaptador por API externa
     ├── sngr/                     Eventos adversos de la SNGR
     ├── inamhi-wrf/               Lluvia pronosticada del modelo WRF (INAMHI, GeoServer de GeoGLOWS)
-    ├── satellite-precipitation/  Lluvia observada por satélite (IMERG, PERSIANN) 24/48/72 h
+    ├── satellite-precipitation/  Lluvia observada por satélite (PERSIANN): horaria por WCS
     ├── geoglows/                 API pública de GEOGLOWS: río más cercano y pronóstico de caudal
     └── inamhi-hydroviewer/       Hydroviewer del INAMHI: red de ríos y alertas por caudal
 ```
@@ -72,7 +77,7 @@ SNGR ──► SngrEventSource ──► IngestionService ──► EventsServic
                                                          │                    ▼
                                     aviso "hazard-event.created/updated"   GET /events
                                                          ▼
-                                              NotificationsService ──► canales (log, correo…)
+                                              NotificationsService ──► correo (Nodemailer/SMTP)
 ```
 
 Principios:
@@ -112,10 +117,11 @@ Crea una clase con `@MapLayerProvider()` que devuelva sus `MapLayerDefinition`
 (ver `integrations/inamhi-wrf/wrf-layers.provider.ts`) e importa su módulo. Queda
 disponible en `GET /layers`, `/layers/:id`, `/layers/:id/legend` y `/layers/:id/wms`.
 
-### Un canal de notificación (p. ej. correo)
+### Un canal de notificación (p. ej. SMS)
 
 Crea una clase con `@NotificationChannel()` que implemente `NotificationChannelAdapter`
-(`send(alert)`) y regístrala en `NotificationsModule`. Recibirá todas las alertas.
+(`send(alert, recipient)`) y regístrala en `NotificationsModule`. Recibirá cada alerta
+para cada suscriptor interesado; el historial y el "no repetir" ya los maneja el servicio.
 
 ### Otro proveedor de caudales
 
@@ -140,18 +146,47 @@ patrón: un contrato para sus fuentes y adaptadores en `integrations/`.
 | GET | `/api/v1/layers/:id/legend` | Rampa de colores real |
 | GET | `/api/v1/layers/:id/wms` | Proxy WMS (úsalo como URL de la capa en Leaflet) |
 | GET | `/api/v1/layers/:id/tiles/:z/:x/:y` | Proxy de teselas vectoriales (red de ríos) |
+| GET | `/api/v1/rain-forecast` | Corrida vigente del WRF y días disponibles (1, 2, 3) |
+| GET | `/api/v1/rain-forecast/days/:day` | Lluvia de un solo día: ventana, límites, máximo y ruta de la imagen |
+| GET | `/api/v1/rain-forecast/days/:day/value?lat=&lng=` | Lluvia pronosticada del día en un punto (mm); `null` fuera del Ecuador o sin dato |
+| GET | `/api/v1/rain-forecast/days/:day/image` | Imagen PNG de la lluvia del día para superponer en el mapa |
+| GET | `/api/v1/observed-rain` | Lluvia observada por satélite: última hora y ventanas 24/48/72 h por producto |
+| GET | `/api/v1/observed-rain/:product/accumulated/:hours` | Lluvia observada hasta la última hora: ventana, máximo y ruta de la imagen |
+| GET | `/api/v1/observed-rain/:product/accumulated/:hours/value?lat=&lng=` | Lluvia observada acumulada en un punto (mm); `null` fuera del Ecuador o sin dato |
+| GET | `/api/v1/observed-rain/:product/accumulated/:hours/image` | Imagen PNG de la lluvia observada acumulada |
+| GET | `/api/v1/sea-temperature` | Anomalía de la temperatura del mar (NOAA OISST): día del dato, anomalía de Niño 1+2, límites, leyenda y ruta de la imagen |
+| GET | `/api/v1/sea-temperature/value?lat=&lng=` | Temperatura y anomalía del mar en un punto (°C); `null` en tierra |
+| GET | `/api/v1/sea-temperature/image` | Imagen PNG de la anomalía del mar |
 | GET | `/api/v1/rivers/alerts` | Tramos con alerta por caudal, por día del último pronóstico (14 días) |
 | GET | `/api/v1/rivers/at?lat=&lng=` | Tramo de río más cercano a un punto y su alerta |
-| GET | `/api/v1/rivers/:riverId/forecast` | Pronóstico de caudal (ensamble y alta resolución, 15 días) |
+| GET | `/api/v1/rivers/:riverId/forecast` | Pronóstico de caudal (ensamble y alta resolución, 15 días) y condiciones antecedentes |
+| GET | `/api/v1/rivers/:riverId/return-periods` | Caudales de 2 a 100 años (Gumbel, simulación histórica 1980–hoy; ~16 s la primera vez, luego 30 días en caché) |
+| GET | `/api/v1/rivers/forecast-runs` | Corridas de pronóstico pasadas disponibles: las recientes por la API de GEOGLOWS y las anteriores (desde jul. 2024) en su archivo AWS |
+| GET | `/api/v1/rivers/:riverId/forecast-runs/:date` | Lo que pronosticaba la corrida de esa fecha (AAAA-MM-DD) para el tramo: estadísticas del ensamble y alta resolución |
+| GET | `/api/v1/rivers/:riverId/forecast-runs/:date/members` | Los 52 miembros de esa corrida (51 del ensamble + alta resolución) |
+
+Las corridas del archivo AWS (anteriores a ~2 meses) tardan de 10 a 75 s la primera vez: se descarga un bloque Zarr de ~15 MB
+(y, una sola vez, el índice de ríos de ~17 MB). Después quedan en caché.
 | GET | `/api/v1/ingestion/sources` | Fuentes y su última sincronización |
 | GET | `/api/v1/ingestion/runs` | Historial de sincronizaciones |
 | POST | `/api/v1/ingestion/sources/:key/run` | Sincronización manual (cabecera `x-admin-token`) |
 | GET | `/api/v1/health` | Estado del servicio y la BD |
+| POST | `/api/v1/admin/auth/login` | Inicio de sesión de un administrador (correo y contraseña) → token de sesión |
+| GET · POST | `/api/v1/admin/auth/me` · `/logout` · `/password` | Cuenta actual, cerrar sesión, cambiar la propia contraseña (sesión) |
+| GET · POST · PATCH · DELETE | `/api/v1/admin/users` (`/:id`, `/:id/password`) | Cuentas de administración (sesión) |
+| GET | `/api/v1/notifications/summary` | Resumen para el panel: suscriptores, envíos de 7 días, estado del SMTP (sesión) |
+| GET · POST | `/api/v1/notifications/subscribers` | Listar y registrar suscriptores de alertas (sesión) |
+| GET · PATCH · DELETE | `/api/v1/notifications/subscribers/:id` | Ver, editar o eliminar un suscriptor (sesión) |
+| GET | `/api/v1/notifications/deliveries?status=` | Historial de envíos, opcionalmente solo enviados o fallidos (sesión) |
+| POST | `/api/v1/notifications/test` | Correo de prueba para verificar el SMTP (sesión) |
+
+«Sesión» = cabecera `Authorization: Bearer <token>` con el token de `POST /admin/auth/login`.
+`x-admin-token` (`ADMIN_TOKEN`) queda solo para automatizaciones, como lanzar una sincronización desde un cron.
 
 ## Severidad de los eventos
 
 Cada fuente traduce su propia escala a la severidad del sistema. La SNGR usa su nivel
-oficial (`NivelDeEvento`), en `src/integrations/sngr/sngr.mapper.ts`:
+oficial (`NivelDelEvento`), en `src/integrations/sngr/sngr.mapper.ts`:
 
 - **Crítico**: Nivel 3 o superior.
 - **Alto**: Nivel 2.
@@ -171,8 +206,22 @@ Se alerta solo por eventos **abiertos**, **críticos o altos** y ocurridos en la
 | `npm test` | Tests unitarios (Vitest) |
 | `npm run lint` | Linter (oxlint) |
 | `npm run migration:run` | Aplicar migraciones manualmente |
+| `npm run admin:create` | Crear una cuenta de administración, o poner contraseña nueva a una existente (recuperar acceso) |
 | `npm run migration:create -- src/database/migrations/<Nombre>` | Crear una migración nueva (y agregarla a `database.options.ts`) |
 
 ## Despliegue
 
 Pendiente de definir el servidor.
+
+## Lluvia pronosticada día por día
+
+El WRF del INAMHI publica la lluvia **de cada día** por separado. El backend entrega un día
+a la vez (día 1 = 0–24 h, 2 = 24–48 h, 3 = 48–72 h), **sin sumarlos**.
+
+1. Descarga la lluvia del día en grilla por WCS (GeoTIFF, ~3 km) de la última corrida.
+2. Pinta un PNG con la paleta oficial de la capa (GetLegendGraphic), suavizado, recortado
+   al Ecuador y reproyectado a Web Mercator (`common/raster/render-png.ts`).
+3. Lo cachea por corrida: no cambia hasta que el INAMHI publique una corrida nueva.
+
+Si la corrida no llega a un día (p. ej. el día 3), ese día aparece como no disponible.
+

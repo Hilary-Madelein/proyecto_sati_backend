@@ -11,6 +11,16 @@ const series = z.array(
 /** GET /getriverid?lat=&lon= */
 export const riverIdSchema = z.object({ river_id: z.coerce.number().int().positive() });
 
+/** GET /forecastrecords/{river_id}?format=json: primer tramo de los pronósticos de días anteriores. */
+export const forecastRecordsSchema = z.looseObject({
+  datetime: z.array(z.string()),
+  average_flow: series,
+});
+
+/** GET /retrospectivedaily/{river_id}?format=json: simulación histórica diaria (la serie va con el id como clave). */
+export const retrospectiveDailySchema = z.looseObject({ datetime: z.array(z.string()) }).catchall(z.unknown());
+export const retrospectiveSeries = series;
+
 /** GET /forecaststats/{river_id}?format=json */
 export const forecastStatsSchema = z.looseObject({
   datetime: z.array(z.string()),

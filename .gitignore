@@ -15,4 +15,7 @@ npm-debug.log*
 .DS_Store
 .idea/
 .vscode/
+
+# Copia local del almacenamiento en memoria (desarrollo)
+.data/
 ARQUITECTURA.md

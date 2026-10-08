@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { SngrEventSource } from './sngr-event.source.js';
 import { SngrClient } from './sngr.client.js';
 
-/** Integración con el web service de eventos adversos de la SNGR. */
+/** Integración con la API de eventos por lluvias de la SNGR (monitoreo del COE). */
 @Module({
   providers: [SngrClient, SngrEventSource],
 })

@@ -13,7 +13,7 @@ async function bootstrap() {
   app.setGlobalPrefix('api');
   app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' });
   app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true }));
-  app.enableCors({ origin: config.get('CORS_ORIGINS'), methods: ['GET', 'POST'] });
+  app.enableCors({ origin: config.get('CORS_ORIGINS'), methods: ['GET', 'POST', 'PATCH', 'DELETE'] });
   app.enableShutdownHooks();
 
   const document = SwaggerModule.createDocument(
@@ -22,6 +22,7 @@ async function bootstrap() {
       .setTitle('SATI.EC API')
       .setDescription('Sistema de alerta temprana de inundaciones para el Ecuador')
       .setVersion('1')
+      .addBearerAuth({ type: 'http', scheme: 'bearer', description: 'Token de POST /admin/auth/login' })
       .addApiKey({ type: 'apiKey', in: 'header', name: ADMIN_TOKEN_HEADER }, ADMIN_TOKEN_HEADER)
       .build(),
   );

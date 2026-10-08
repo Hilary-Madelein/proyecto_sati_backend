@@ -52,4 +52,55 @@ export interface RiverForecast {
     p75: Array<number | null>;
     max: Array<number | null>;
   };
+  /**
+   * Condiciones antecedentes: caudal con que arrancó el pronóstico de cada uno
+   * de los días anteriores. null si la fuente no las pudo dar.
+   */
+  antecedent: { times: string[]; flow: Array<number | null> } | null;
+  /**
+   * AAAAMMDD de una corrida anterior cuando la más reciente no se pudo leer
+   * (GEOGLOWS a veces publica la del día incompleta); null si es la vigente.
+   */
+  fallbackRun: string | null;
+}
+
+/** Caudales de los periodos de retorno de un tramo (umbrales de las alertas). */
+export interface RiverReturnPeriods {
+  riverId: number;
+  /** Cómo se calcularon, para mostrarlo junto al gráfico. */
+  method: string;
+  /** De menor a mayor periodo. */
+  thresholds: Array<{ years: number; flow: number }>;
+}
+
+/** Una corrida de pronóstico emitida (siempre a las 00 UTC) y dónde se consulta. */
+export interface ForecastRun {
+  /** AAAAMMDD. */
+  date: string;
+  /** `api`: API REST de GEOGLOWS (últimas semanas, rápida). `archive`: archivo Zarr en AWS (desde julio de 2024, lento). */
+  origin: 'api' | 'archive';
+}
+
+/** Corridas disponibles, de la más reciente a la más antigua. */
+export interface ForecastRunsCatalog {
+  runs: ForecastRun[];
+  api: { from: string; to: string } | null;
+  archive: { from: string; to: string } | null;
+}
+
+/** Pronóstico de una corrida pasada: lo que se pronosticaba ese día (sin antecedentes). */
+export interface ArchivedRiverForecast extends Omit<RiverForecast, 'antecedent' | 'fallbackRun'> {
+  /** AAAAMMDD de la corrida. */
+  run: string;
+  origin: ForecastRun['origin'];
+}
+
+/** Todos los miembros de una corrida: 51 del ensamble y el 52 = alta resolución. */
+export interface RiverForecastMembers {
+  riverId: number;
+  run: string;
+  origin: ForecastRun['origin'];
+  unit: 'm3/s';
+  times: string[];
+  members: Array<{ member: number; highRes: boolean; flow: Array<number | null> }>;
 }
