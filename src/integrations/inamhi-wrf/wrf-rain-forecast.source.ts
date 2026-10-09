@@ -11,13 +11,19 @@ import { AppConfigService } from '../../config/app-config.service.js';
 import { RainForecastSource, type ForecastRun } from '../../modules/rain-forecast/rain-forecast-source.js';
 
 const SERVICE = 'WRF INAMHI';
-/** Capa de lluvia diaria: cada paso es la lluvia de las 24 h que terminan en él. */
+/**
+ * Capa de lluvia diaria. Cada paso es la lluvia de las 24 h que EMPIEZAN en él:
+ * la suma de los pasos de 3 h siguientes coincide con él (comprobado con las
+ * grillas), y la corrida trae los días que empiezan en su inicio, +24 h y +48 h.
+ */
 const LAYER = 'wrf_precipitation_daily';
 const COVERAGE_ID = `wrf__${LAYER}`;
 const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
 
 /**
- * Lluvia diaria del modelo WRF del INAMHI (GeoServer servido por GeoGLOWS):
+ * Lluvia diaria del modelo WRF del INAMHI, la misma que muestra su visor oficial
+ * (inamhi.geoglows.org; GeoServer servido por GEOGLOWS):
  * corridas por el GetCapabilities WMS, valores por WCS (GeoTIFF) y paleta por
  * GetLegendGraphic, para que el acumulado se vea igual que las capas oficiales.
  */
@@ -42,18 +48,24 @@ export class WrfRainForecastSource extends RainForecastSource {
     const dimensions = parseWmsLayerDimensions(xml, LAYER);
     const run = dimensions?.extra.INITD?.default;
     if (!dimensions || !run) return null;
-    return { run, dailyTimes: dimensions.times.filter((time) => Date.parse(time) > Date.parse(run)) };
+    // El contrato pide el FIN de cada día: inicio publicado + 24 h.
+    const dailyTimes = dimensions.times
+      .filter((time) => Date.parse(time) >= Date.parse(run))
+      .map((start) => new Date(Date.parse(start) + DAY_MS).toISOString());
+    return { run, dailyTimes };
   }
 
+  /** `time` es el fin de las 24 h; el servidor las publica con su inicio. */
   getDailyGrid(run: string, time: string): Promise<RasterGrid> {
-    return this.gridCache.get(`${run}|${time}`, async () => {
+    const start = new Date(Date.parse(time) - DAY_MS).toISOString();
+    return this.gridCache.get(`${run}|${start}`, async () => {
       const url = new URL(this.config.get('GEOGLOWS_WRF_WCS_URL'));
       url.searchParams.set('service', 'WCS');
       url.searchParams.set('version', '2.0.1');
       url.searchParams.set('request', 'GetCoverage');
       url.searchParams.set('coverageId', COVERAGE_ID);
       url.searchParams.set('format', 'image/tiff');
-      url.searchParams.append('subset', `time("${time}")`);
+      url.searchParams.append('subset', `time("${start}")`);
       url.searchParams.append('subset', `INITD("${run}")`);
 
       const buffer = await (await fetchWithRetry(url, { service: SERVICE, timeoutMs: 60_000, retries: 1 })).arrayBuffer();
@@ -61,7 +73,7 @@ export class WrfRainForecastSource extends RainForecastSource {
         return await readGeoTiffGrid(buffer);
       } catch {
         // El servidor responde un XML de error (con HTTP 200) si el paso no existe.
-        throw new UpstreamError(SERVICE, `no hay datos de lluvia para ${time}`);
+        throw new UpstreamError(SERVICE, `no hay datos de lluvia para el día que empieza ${start}`);
       }
     });
   }
