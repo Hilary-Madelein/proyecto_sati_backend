@@ -42,7 +42,7 @@ export class RainForecastController {
   @ApiOperation({ summary: 'Imagen PNG de la lluvia pronosticada del día, lista para superponer en el mapa' })
   async image(@Param('day', ParseIntPipe) day: number, @Res({ passthrough: true }) response: Response): Promise<StreamableFile> {
     const png = await this.rain.image(toDay(day));
-    // La URL lleva la corrida: la imagen de una corrida no cambia.
+    // La URL lleva la corrida y el fin de la ventana del día: esa imagen no cambia.
     response.setHeader('Cache-Control', 'public, max-age=21600');
     return new StreamableFile(png, { type: 'image/png' });
   }

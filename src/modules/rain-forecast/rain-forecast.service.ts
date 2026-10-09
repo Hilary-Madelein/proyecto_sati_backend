@@ -140,7 +140,9 @@ export class RainForecastService {
               [north, east],
             ],
             maxMm: Math.round(gridMax(grid) * 10) / 10,
-            imagePath: `/rain-forecast/days/${day}/image?run=${encodeURIComponent(run.run)}`,
+            // La URL identifica la imagen (corrida y fin de la ventana): el navegador la guarda
+            // 6 h, y si cambia el día que representa (otra fuente u otro cálculo) cambia la URL.
+            imagePath: `/rain-forecast/days/${day}/image?run=${encodeURIComponent(run.run)}&to=${encodeURIComponent(time)}`,
           },
         };
       }),

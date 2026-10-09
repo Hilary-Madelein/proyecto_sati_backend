@@ -91,16 +91,26 @@ export const envSchema = z.object({
   SNGR_BACKFILL_DAYS: z.coerce.number().int().min(1).max(365).default(30),
 
   // ── Capas WMS (GeoServer del INAMHI servido por GeoGLOWS) ────────────────
-  GEOGLOWS_WRF_WMS_URL: z.url().default('http://services.geoglows.org:8080/geoserver/wrf/wms'),
+  /**
+   * De dónde sale la lluvia pronosticada día por día: "geoglows" = la lluvia
+   * diaria que publica el visor oficial del INAMHI (inamhi.geoglows.org, con
+   * corridas pasadas); "inamhi" = catálogo del INAMHI (geoservicios, dataset
+   * 355): suma de pasos de 3 h, que da ~la mitad (diferencia por aclarar con el INAMHI).
+   */
+  RAIN_FORECAST_SOURCE: z.enum(['inamhi', 'geoglows']).default('geoglows'),
+  /** Catálogo del INAMHI: capa WRF de 3 h (dataset 355). */
+  INAMHI_WRF_WMS_URL: z.url().default('https://geoservicios.inamhi.gob.ec/geoserver/geonode/wrf_tiempo_precipitacion/wms'),
+  INAMHI_WRF_WCS_URL: z.url().default('https://geoservicios.inamhi.gob.ec/geoserver/ows'),
+  GEOGLOWS_WRF_WMS_URL: z.url().default('https://services.geoglows.org/geoserver/wrf/wms'),
   /** Mismo servidor por WCS: descarga de la lluvia en grilla para calcular acumulados. */
-  GEOGLOWS_WRF_WCS_URL: z.url().default('http://services.geoglows.org:8080/geoserver/wrf/wcs'),
+  GEOGLOWS_WRF_WCS_URL: z.url().default('https://services.geoglows.org/geoserver/wrf/wcs'),
   SATELLITE_PRECIPITATION_WMS_URL: z
     .url()
-    .default('http://services.geoglows.org:8080/geoserver/satellite_based_precipitation/wms'),
+    .default('https://services.geoglows.org/geoserver/satellite_based_precipitation/wms'),
   /** Mismo servidor por WCS: lluvia horaria en grilla para calcular las últimas 24/48/72 h. */
   SATELLITE_PRECIPITATION_WCS_URL: z
     .url()
-    .default('http://services.geoglows.org:8080/geoserver/satellite_based_precipitation/wcs'),
+    .default('https://services.geoglows.org/geoserver/satellite_based_precipitation/wcs'),
 
   // ── Notificaciones por correo (SMTP) ─────────────────────────────────────
   /** Servidor SMTP (p. ej. smtp.gmail.com, smtp-relay.brevo.com). Vacío = los correos solo van al log. */

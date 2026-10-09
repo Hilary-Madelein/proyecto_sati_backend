@@ -215,11 +215,13 @@ Pendiente de definir el servidor.
 
 ## Lluvia pronosticada día por día
 
-El WRF del INAMHI publica la lluvia **de cada día** por separado. El backend entrega un día
-a la vez (día 1 = 0–24 h, 2 = 24–48 h, 3 = 48–72 h), **sin sumarlos**.
+La lluvia es la capa diaria que publica el visor oficial del INAMHI (inamhi.geoglows.org).
+El backend entrega un día a la vez (día 1 = 0–24 h, 2 = 24–48 h, 3 = 48–72 h desde el
+inicio de la corrida), **sin sumar días entre sí**. (Alternativa: `RAIN_FORECAST_SOURCE=inamhi`,
+catálogo del INAMHI.)
 
-1. Descarga la lluvia del día en grilla por WCS (GeoTIFF, ~3 km) de la última corrida.
-2. Pinta un PNG con la paleta oficial de la capa (GetLegendGraphic), suavizado, recortado
+1. Descarga la lluvia del día en grilla por WCS (GeoTIFF, ~3 km).
+2. Pinta un PNG con la paleta oficial de lluvia diaria del INAMHI, suavizado, recortado
    al Ecuador y reproyectado a Web Mercator (`common/raster/render-png.ts`).
 3. Lo cachea por corrida: no cambia hasta que el INAMHI publique una corrida nueva.
 

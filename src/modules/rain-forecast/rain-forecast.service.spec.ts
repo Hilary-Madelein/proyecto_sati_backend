@@ -59,7 +59,8 @@ describe('RainForecastService', () => {
 
     expect(source.requested).toEqual([dayTime(2)]);
     expect(result).toMatchObject({ day: 2, from: dayTime(1), to: dayTime(2), maxMm: 20 });
-    expect(result.imagePath).toBe(`/rain-forecast/days/2/image?run=${encodeURIComponent(RUN)}`);
+    // La URL cambia si cambia la corrida o la ventana del día (el navegador guarda la imagen 6 h).
+    expect(result.imagePath).toBe(`/rain-forecast/days/2/image?run=${encodeURIComponent(RUN)}&to=${encodeURIComponent(dayTime(2))}`);
   });
 
   it('responde 404 si la corrida no llega a ese día', async () => {
