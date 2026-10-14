@@ -19,5 +19,3 @@ npm-debug.log*
 # Copia local del almacenamiento en memoria (desarrollo)
 .data/
 ARQUITECTURA.md
-.data/events.json
-.data/sync-runs.json
