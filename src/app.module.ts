@@ -6,6 +6,7 @@ import { AppConfigModule } from './config/config.module.js';
 import { EmailModule } from './integrations/email/email.module.js';
 import { GeoglowsModule } from './integrations/geoglows/geoglows.module.js';
 import { InamhiHydroviewerModule } from './integrations/inamhi-hydroviewer/inamhi-hydroviewer.module.js';
+import { InamhiStationsModule } from './integrations/inamhi-stations/inamhi-stations.module.js';
 import { InamhiWrfModule } from './integrations/inamhi-wrf/inamhi-wrf.module.js';
 import { NoaaOisstModule } from './integrations/noaa-oisst/noaa-oisst.module.js';
 import { SatellitePrecipitationModule } from './integrations/satellite-precipitation/satellite-precipitation.module.js';
@@ -19,6 +20,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
 import { ObservedRainModule } from './modules/observed-rain/observed-rain.module.js';
 import { RainForecastModule } from './modules/rain-forecast/rain-forecast.module.js';
 import { SeaTemperatureModule } from './modules/sea-temperature/sea-temperature.module.js';
+import { WeatherStationsModule } from './modules/weather-stations/weather-stations.module.js';
 import { StorageModule } from './storage/storage.module.js';
 
 @Module({
@@ -38,6 +40,7 @@ import { StorageModule } from './storage/storage.module.js';
     RainForecastModule,
     ObservedRainModule,
     SeaTemperatureModule,
+    WeatherStationsModule,
     NotificationsModule,
     AdminAuthModule,
     HealthModule,
@@ -49,6 +52,7 @@ import { StorageModule } from './storage/storage.module.js';
     NoaaOisstModule,
     GeoglowsModule,
     InamhiHydroviewerModule,
+    InamhiStationsModule,
     EmailModule,
   ],
 })
