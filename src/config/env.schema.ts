@@ -134,6 +134,10 @@ export const envSchema = z.object({
   /** Servidor de teselas del Hydroviewer del INAMHI (red de ríos y alertas). */
   HYDROVIEWER_TILES_URL: z.url().default('https://services.geoglows.org/martin'),
 
+  // ── Estaciones del INAMHI ────────────────────────────────────────────────
+  /** API pública del INAMHI: estaciones con coordenadas y lluvia horaria de las últimas 12 h. */
+  INAMHI_STATIONS_API_URL: z.url().default('https://apis.inamhi.gob.ec/api/v1'),
+
   // ── Temperatura del mar (NOAA OISST v2.1) ────────────────────────────────
   /** Carpetas mensuales de NCEI con un archivo NetCDF por día (fuente principal). */
   OISST_FILES_URL: z

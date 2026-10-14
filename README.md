@@ -58,6 +58,7 @@ src/
 │   ├── hydrology/     Caudales de ríos: alertas por periodo de retorno e hidrogramas
 │   ├── rain-forecast/ Lluvia pronosticada del WRF en tramos de 24 h (0–24, 24–48, 48–72 h)
 │   ├── sea-temperature/ Anomalía de la temperatura del mar frente a Ecuador (indicador de El Niño)
+│   ├── weather-stations/ Lluvia medida en las estaciones (pluviómetros) en las últimas horas
 │   ├── notifications/ Regla de alertas y canales de envío (log hoy, correo después)
 │   └── health/        Estado del servicio y la BD
 └── integrations/      Un adaptador por API externa
@@ -65,6 +66,7 @@ src/
     ├── inamhi-wrf/               Lluvia pronosticada del modelo WRF (INAMHI, GeoServer de GeoGLOWS)
     ├── satellite-precipitation/  Lluvia observada por satélite (PERSIANN): horaria por WCS
     ├── geoglows/                 API pública de GEOGLOWS: río más cercano y pronóstico de caudal
+    ├── inamhi-stations/          API de estaciones del INAMHI: coordenadas y lluvia horaria (últimas 12 h)
     └── inamhi-hydroviewer/       Hydroviewer del INAMHI: red de ríos y alertas por caudal
 ```
 
@@ -154,6 +156,7 @@ patrón: un contrato para sus fuentes y adaptadores en `integrations/`.
 | GET | `/api/v1/observed-rain/:product/accumulated/:hours` | Lluvia observada hasta la última hora: ventana, máximo y ruta de la imagen |
 | GET | `/api/v1/observed-rain/:product/accumulated/:hours/value?lat=&lng=` | Lluvia observada acumulada en un punto (mm); `null` fuera del Ecuador o sin dato |
 | GET | `/api/v1/observed-rain/:product/accumulated/:hours/image` | Imagen PNG de la lluvia observada acumulada |
+| GET | `/api/v1/weather-stations` | Estaciones del INAMHI que transmiten, con la lluvia de cada hora de las últimas 12 h y su total |
 | GET | `/api/v1/sea-temperature` | Anomalía de la temperatura del mar (NOAA OISST): día del dato, anomalía de Niño 1+2, límites, leyenda y ruta de la imagen |
 | GET | `/api/v1/sea-temperature/value?lat=&lng=` | Temperatura y anomalía del mar en un punto (°C); `null` en tierra |
 | GET | `/api/v1/sea-temperature/image` | Imagen PNG de la anomalía del mar |
