@@ -14,6 +14,8 @@ const SERVICE = 'Estaciones INAMHI';
 const HOURLY_RAIN = '017140801h';
 /** Estaciones con datos por API (las demás son manuales y no informan en tiempo real). */
 const CAPTORS = 'ELECTROMECANICA';
+/** Responde en menos de 1 s; una estación colgada no debe frenar la carga de todas. */
+const TIMEOUT_MS = 10_000;
 
 /**
  * API pública del INAMHI (apis.inamhi.gob.ec): estaciones con coordenadas y
@@ -52,6 +54,6 @@ export class InamhiStationSource extends WeatherStationSource {
   }
 
   private async json(url: URL): Promise<unknown> {
-    return (await fetchWithRetry(url, { service: SERVICE, timeoutMs: 30_000, retries: 1 })).json();
+    return (await fetchWithRetry(url, { service: SERVICE, timeoutMs: TIMEOUT_MS, retries: 1 })).json();
   }
 }

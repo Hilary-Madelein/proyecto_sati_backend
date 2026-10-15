@@ -43,12 +43,13 @@ export class EventsService {
     for (const item of unique.values()) {
       const contentHash = stableHash(item.raw);
       const current = existingById.get(item.externalId);
+      const columns = this.toColumns(item, contentHash);
 
       if (!current) {
-        created.push(Object.assign(new HazardEventEntity(), this.toColumns(item, contentHash), { lastSeenAt: now, updatedAt: now }));
-      } else if (current.contentHash !== contentHash) {
+        created.push(Object.assign(new HazardEventEntity(), columns, { lastSeenAt: now, updatedAt: now }));
+      } else if (current.contentHash !== contentHash || this.classificationChanged(current, columns)) {
         const previous = { severity: current.severity, status: current.status };
-        Object.assign(current, this.toColumns(item, contentHash), { lastSeenAt: now, updatedAt: now });
+        Object.assign(current, columns, { lastSeenAt: now, updatedAt: now });
         updated.push({ event: current, previous });
       } else {
         seenIds.push(current.id);
@@ -81,6 +82,15 @@ export class EventsService {
     return this.store.summary(filters);
   }
 
+  /**
+   * Lo que se deduce del registro (tipo, título, río, impacto) puede cambiar
+   * aunque el registro no cambie, cuando mejora la clasificación: así los eventos
+   * ya guardados se reclasifican en la siguiente sincronización.
+   */
+  private classificationChanged(current: HazardEventEntity, columns: Partial<HazardEventEntity>): boolean {
+    return (['hazardType', 'title', 'waterBody', 'impactLevel'] as const).some((key) => (current[key] ?? null) !== columns[key]);
+  }
+
   private toColumns(item: NormalizedEvent, contentHash: string): Partial<HazardEventEntity> {
     return {
       source: item.source,
@@ -95,6 +105,8 @@ export class EventsService {
       province: item.province,
       canton: item.canton,
       sector: item.sector?.slice(0, 255) ?? null,
+      waterBody: item.waterBody?.slice(0, 120) ?? null,
+      impactLevel: item.impactLevel,
       location: { type: 'Point', coordinates: [item.longitude, item.latitude] },
       occurredAt: item.occurredAt,
       affected: item.impact.affected,

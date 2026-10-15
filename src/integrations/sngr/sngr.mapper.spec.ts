@@ -1,4 +1,4 @@
-import { hazardTypeFromSngrEvent, mapSngrEvent } from './sngr.mapper.js';
+import { mapSngrEvent, NOT_A_FLOOD } from './sngr.mapper.js';
 import { toIsoDate } from './sngr.schema.js';
 
 /** Registro con la forma de POST /public/eventos_lluvias (datos de ejemplo). */
@@ -38,15 +38,17 @@ describe('mapSngrEvent', () => {
     expect(result.event).toMatchObject({
       source: 'sngr',
       code: null,
-      hazardType: 'flood',
+      hazardType: 'river_flood',
       severity: 'high',
       level: 2,
       status: 'open',
-      title: 'Inundación en Babahoyo',
+      title: 'Desborde de río en Babahoyo',
       description: 'Desbordamiento del río',
       province: 'Los Rios',
       canton: 'Babahoyo',
       sector: 'Barrio El Salto',
+      waterBody: null,
+      impactLevel: 'medium',
       latitude: -1.8,
       longitude: -79.53,
       impact: { affected: 150, housesAffected: 30, evacuated: 0, deceased: 0 },
@@ -71,12 +73,23 @@ describe('mapSngrEvent', () => {
     expect(result.ok && result.event.status).toBe('closed');
   });
 
-  it('usa el nombre de la SNGR en el título de los tipos sin equivalente', () => {
-    const result = mapSngrEvent({ ...baseRecord, Evento: 'Vendaval' });
-    expect(result.ok && { type: result.event.hazardType, title: result.event.title }).toEqual({
-      type: 'other',
-      title: 'Vendaval en Babahoyo',
+  it('nombra en el título el río desbordado', () => {
+    const description = 'Se produjo el desbordamiento del río La Clementina.';
+    const result = mapSngrEvent({ ...baseRecord, DescripcionGeneralDeEvento: description });
+    expect(result.ok && { waterBody: result.event.waterBody, title: result.event.title }).toEqual({
+      waterBody: 'Río La Clementina',
+      title: 'Desborde del río La Clementina en Babahoyo',
     });
+  });
+
+  it('usa "de la" con las quebradas', () => {
+    const description = 'Incremento del caudal de la quebrada Higuerillas.';
+    const result = mapSngrEvent({ ...baseRecord, DescripcionGeneralDeEvento: description });
+    expect(result.ok && result.event.title).toBe('Desborde de la quebrada Higuerillas en Babahoyo');
+  });
+
+  it.each(['Deslizamiento', 'Vendaval', 'Granizada'])('descarta lo que no es inundación: %s', (Evento) => {
+    expect(mapSngrEvent({ ...baseRecord, Evento })).toEqual({ ok: false, reason: NOT_A_FLOOD });
   });
 
   it('usa "Coordenadas" si faltan Latitud y Longitud', () => {
@@ -97,7 +110,7 @@ describe('mapSngrEvent', () => {
     });
 
     it('distingue eventos de otro tipo, fecha o lugar', () => {
-      const ids = [idOf({}), idOf({ Evento: 'Deslizamiento' }), idOf({ FechaDelEvento: '2/10/2026' }), idOf({ Latitud: -1.81 })];
+      const ids = [idOf({}), idOf({ Evento: 'Inundación fluvial' }), idOf({ FechaDelEvento: '2/10/2026' }), idOf({ Latitud: -1.81 })];
       expect(new Set(ids).size).toBe(4);
     });
   });
@@ -127,43 +140,3 @@ describe('toIsoDate', () => {
   });
 });
 
-describe('hazardTypeFromSngrEvent', () => {
-  it.each([
-    // Catálogo 2025: tipos y subtipos con equivalente propio.
-    ['Inundación', 'flood'],
-    ['Inundación fluvial', 'flood'],
-    ['Inundación pluvial', 'flood'],
-    ['Aluvión (Flujos)', 'mudflow'],
-    ['Aluvión', 'mudflow'],
-    ['Flujo de lodo', 'mudflow'],
-    ['Deslizamiento', 'landslide'],
-    ['Deslizamiento rotacional', 'landslide'],
-    ['Caídas (Colapso)', 'rockfall'],
-    ['Caídas', 'rockfall'],
-    ['Caída de roca', 'rockfall'],
-    ['Caída de suelo (no consolidado)', 'rockfall'],
-    ['Hundimiento', 'subsidence'],
-    ['Subsidencia', 'subsidence'],
-    ['Reptación', 'soil_creep'],
-    ['Erosión hídrica', 'water_erosion'],
-    ['Lluvias intensas', 'heavy_rain'],
-    // Catálogo 2018-2024.
-    ['Socavamiento', 'subsidence'],
-    // Tolerancia a mayúsculas, tildes y espacios.
-    ['  INUNDACION  FLUVIAL ', 'flood'],
-    // Parecidos que NO son lo mismo.
-    ['Erosión eólica', 'other'],
-    ['Erosión Costera', 'other'],
-    ['Caída de ceniza', 'other'],
-    ['Caída de meteorito', 'other'],
-    ['Lahares', 'other'],
-    ['Avalancha de lodo', 'other'],
-    // Sin equivalente propio.
-    ['Vendaval', 'other'],
-    ['Tormenta eléctrica', 'other'],
-    ['Granizada', 'other'],
-    [null, 'other'],
-  ])('%s -> %s', (name, type) => {
-    expect(hazardTypeFromSngrEvent(name)).toBe(type);
-  });
-});

@@ -1,51 +1,26 @@
 import { stableHash } from '../../common/crypto/stable-hash.js';
 import { toTitleCase } from '../../common/text/title-case.js';
 import { normalizeTime, parseEcuadorDateTime } from '../../common/time/ecuador-time.js';
-import { HAZARD_TYPES, type HazardType } from '../../modules/events/domain/hazard-type.js';
+import { HAZARD_TYPES } from '../../modules/events/domain/hazard-type.js';
 import type { NormalizedEvent } from '../../modules/events/domain/normalized-event.js';
 import type { Severity } from '../../modules/events/domain/severity.js';
+import { floodTypeFromSngrEvent, impactLevelFromSngrEvent, waterBodyFromDescription } from './sngr-flood.classifier.js';
 import { sngrEventSchema, type SngrEvent } from './sngr.schema.js';
 
 export const SNGR_SOURCE_KEY = 'sngr';
+
+/** Motivo de descarte de lo que no es una inundación: no es un error de los datos. */
+export const NOT_A_FLOOD = 'no es inundación';
 
 /** "Inundación " -> "inundacion": sin tildes, minúsculas y sin espacios sobrantes. */
 const normalizeName = (value: string) =>
   value.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().replace(/\s+/g, ' ').trim();
 
-/** Además quita lo que va entre paréntesis: "Caídas (Colapso)" -> "caidas". */
-const catalogKey = (value: string) => normalizeName(value.replace(/\(.*?\)/g, ' '));
-
-/**
- * Tipo propio según el nombre del evento (campo `Evento`), tal como aparece en el
- * "Catálogo Nacional de amenazas y eventos adversos" de la SNGR (v3.0, 2025):
- * tipos y subtipos del fenómeno geológico externo e hidrometeorológico que tienen
- * equivalente propio. "Socavamiento" viene del catálogo 2018-2024 (en el de 2025
- * es parte de Hundimiento).
- *
- * La coincidencia es exacta a propósito: "Erosión eólica", "Erosión costera",
- * "Caída de ceniza" o "Lahares" (volcánico) no son lo mismo que sus parecidos.
- * El resto del catálogo (Vendaval, Tormenta eléctrica, Avalancha…) queda como "other".
- */
-const HAZARD_BY_CATALOG_NAME: Readonly<Record<HazardType, readonly string[]>> = {
-  flood: ['Inundación', 'Inundación costera', 'Inundación fluvial', 'Inundación lacustre', 'Inundación pluvial'],
-  mudflow: ['Aluvión (Flujos)', 'Flujo de detritos', 'Flujo de lodo'],
-  landslide: ['Deslizamiento', 'Deslizamiento rotacional', 'Deslizamiento traslacional'],
-  rockfall: ['Caídas (Colapso)', 'Caída', 'Caída de roca', 'Caída de suelo (no consolidado)'],
-  subsidence: ['Hundimiento', 'Hundimiento súbito', 'Subsidencia', 'Socavamiento'],
-  soil_creep: ['Reptación'],
-  water_erosion: ['Erosión hídrica'],
-  heavy_rain: ['Lluvias intensas'],
-  other: [],
-};
-
-const HAZARD_BY_EVENT_KEY = new Map<string, HazardType>(
-  Object.entries(HAZARD_BY_CATALOG_NAME).flatMap(([type, names]) =>
-    names.map((name) => [catalogKey(name), type as HazardType] as const),
-  ),
-);
-
-export function hazardTypeFromSngrEvent(name: string | null): HazardType {
-  return (name && HAZARD_BY_EVENT_KEY.get(catalogKey(name))) || 'other';
+/** "Río Balao" -> "del río Balao"; "Quebrada Higuerillas" -> "de la quebrada Higuerillas". */
+function waterBodyWithArticle(waterBody: string): string {
+  const [kind, ...name] = waterBody.split(' ');
+  const article = kind === 'Quebrada' ? 'de la' : 'del';
+  return `${article} ${kind.toLowerCase()} ${name.join(' ')}`;
 }
 
 /**
@@ -99,9 +74,12 @@ export function mapSngrEvent(raw: unknown): SngrMapResult {
   if (!coordinates || !isInEcuador(...coordinates)) return { ok: false, reason: 'coordenadas fuera de Ecuador' };
   const [latitude, longitude] = coordinates;
 
-  const hazardType = hazardTypeFromSngrEvent(record.Evento);
-  // Para los tipos sin equivalente propio se muestra el nombre que usa la SNGR.
-  const label = hazardType === 'other' && record.Evento ? record.Evento : HAZARD_TYPES[hazardType];
+  // Solo interesan las inundaciones (desbordes de ríos y lluvia que anega): los
+  // deslizamientos, vendavales, granizadas… se descartan.
+  const hazardType = floodTypeFromSngrEvent(record);
+  if (!hazardType) return { ok: false, reason: NOT_A_FLOOD };
+  const waterBody = hazardType === 'river_flood' ? waterBodyFromDescription(record.DescripcionGeneralDeEvento) : null;
+  const label = waterBody ? `Desborde ${waterBodyWithArticle(waterBody)}` : HAZARD_TYPES[hazardType];
   const province = toTitleCase(record.Provincia) || null;
   const canton = toTitleCase(record.Canton) || null;
 
@@ -120,6 +98,8 @@ export function mapSngrEvent(raw: unknown): SngrMapResult {
       province,
       canton,
       sector: record['Comunidad/Barrio/Sector'],
+      waterBody,
+      impactLevel: impactLevelFromSngrEvent(record),
       latitude,
       longitude,
       occurredAt,

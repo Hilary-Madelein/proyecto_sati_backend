@@ -23,6 +23,8 @@ export abstract class RiverForecastSource {
 export abstract class RiverAlertSource {
   /** Alertas del pronóstico más reciente disponible. */
   abstract getLatestAlerts(): Promise<RiverAlertsSnapshot>;
+  /** Alertas del pronóstico emitido el día `date` (AAAA-MM-DD), o null si ese día no se publicó. */
+  abstract getAlertsOn(date: string): Promise<RiverAlertsSnapshot | null>;
 }
 
 /** Pronósticos ya emitidos (corridas pasadas), para consultarlos o compararlos. */

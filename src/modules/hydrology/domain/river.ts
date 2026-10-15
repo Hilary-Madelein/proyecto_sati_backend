@@ -18,6 +18,13 @@ export interface RiverAlert {
   dailyLevels: AlertLevel[];
   /** Mayor nivel en todo el horizonte. */
   maxLevel: AlertLevel;
+  /**
+   * Parte de los pronósticos recientes en que el tramo amaneció con alerta (0–1).
+   * null mientras no hay historia suficiente para calcularla.
+   */
+  alertShare: number | null;
+  /** Alerta casi todos los días: lo más probable es que el modelo sobrestime este tramo. */
+  persistent: boolean;
 }
 
 export interface RiverAlertsSnapshot {
@@ -31,6 +38,11 @@ export interface RiverAlertsSnapshot {
   totalReaches: number;
   /** Solo los tramos con alguna alerta en el horizonte. */
   alerts: RiverAlert[];
+  /**
+   * Con qué se midió la persistencia: pronósticos usados y proporción desde la
+   * que un tramo es persistente. null si aún no hay historia suficiente.
+   */
+  persistence: { forecasts: number; threshold: number } | null;
 }
 
 /** Serie de caudal pronosticado (m³/s). Los valores faltantes son null. */

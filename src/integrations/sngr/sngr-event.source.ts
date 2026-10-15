@@ -9,7 +9,7 @@ import {
   type SyncWindow,
 } from '../../modules/ingestion/hazard-event-source.js';
 import { SngrClient } from './sngr.client.js';
-import { mapSngrEvent, SNGR_SOURCE_KEY } from './sngr.mapper.js';
+import { mapSngrEvent, NOT_A_FLOOD, SNGR_SOURCE_KEY } from './sngr.mapper.js';
 
 const HOURS_PER_DAY = 24;
 
@@ -45,26 +45,26 @@ export class SngrEventSource implements HazardEventSourceAdapter {
 
     const events = new Map<string, NormalizedEvent>();
     const discarded = new Map<string, number>();
-    const unclassified = new Map<string, number>();
+    const notFloods = new Map<string, number>();
     let repeated = 0;
 
     for (const record of records) {
       const result = mapSngrEvent(record);
       if (!result.ok) {
-        increment(discarded, result.reason);
+        if (result.reason === NOT_A_FLOOD) increment(notFloods, String((record as { Evento?: unknown }).Evento ?? 'sin nombre'));
+        else increment(discarded, result.reason);
         continue;
       }
       const { event } = result;
       if (events.has(event.externalId)) repeated++;
       events.set(event.externalId, event);
-      if (event.hazardType === 'other') increment(unclassified, String((record as { Evento?: unknown }).Evento ?? 'sin nombre'));
     }
 
     if (discarded.size > 0) this.logger.warn(`Registros descartados: ${summarize(discarded)}`);
     if (repeated > 0) {
       this.logger.warn(`${repeated} registros repetidos (misma parroquia, tipo, fecha, hora y coordenadas): se guardó uno`);
     }
-    if (unclassified.size > 0) this.logger.log(`Eventos guardados como "Otro": ${summarize(unclassified)}`);
+    if (notFloods.size > 0) this.logger.log(`Omitidos por no ser inundaciones: ${summarize(notFloods)}`);
     return [...events.values()];
   }
 }
