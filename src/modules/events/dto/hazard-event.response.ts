@@ -1,12 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import {
-  HAZARD_TYPES,
-  HAZARD_TYPE_VALUES,
-  IMPACT_LEVEL_LABELS,
-  IMPACT_LEVELS,
-  type HazardType,
-  type ImpactLevel,
-} from '../domain/hazard-type.js';
+import { HAZARD_TYPES, HAZARD_TYPE_VALUES, type HazardType } from '../domain/hazard-type.js';
 import type { EventStatus } from '../domain/normalized-event.js';
 import { SEVERITIES, SEVERITY_LABELS, type Severity } from '../domain/severity.js';
 import type { HazardEventEntity } from '../entities/hazard-event.entity.js';
@@ -21,6 +14,7 @@ class ImpactDto {
   @ApiProperty() housesAffected: number;
   @ApiProperty() evacuated: number;
   @ApiProperty() deceased: number;
+  @ApiProperty({ description: 'Damnificados' }) homeless: number;
 }
 
 /** Forma pública de un evento: sin el registro original ni campos internos. */
@@ -40,11 +34,8 @@ export class HazardEventResponse {
   @ApiProperty({ nullable: true, type: String }) province: string | null;
   @ApiProperty({ nullable: true, type: String }) canton: string | null;
   @ApiProperty({ nullable: true, type: String }) sector: string | null;
-  @ApiProperty({ nullable: true, type: String, example: 'Río Balao', description: 'Río, estero o quebrada desbordado' })
-  waterBody: string | null;
-  @ApiProperty({ nullable: true, enum: IMPACT_LEVELS, description: 'Impacto según las cifras de daños' })
-  impactLevel: ImpactLevel | null;
-  @ApiProperty({ nullable: true, type: String, example: 'Alto' }) impactLevelLabel: string | null;
+  @ApiProperty({ description: 'La fuente registró daño en personas, viviendas, cultivos o servicios (no solo calles con agua).' })
+  hasDamage: boolean;
   @ApiProperty({ type: LocationDto }) location: LocationDto;
   @ApiProperty({ type: ImpactDto }) impact: ImpactDto;
   @ApiProperty() occurredAt: string;
@@ -68,15 +59,14 @@ export class HazardEventResponse {
       canton: entity.canton,
       sector: entity.sector,
       // `??`: los eventos guardados antes de existir estos campos no los traen.
-      waterBody: entity.waterBody ?? null,
-      impactLevel: entity.impactLevel ?? null,
-      impactLevelLabel: entity.impactLevel ? IMPACT_LEVEL_LABELS[entity.impactLevel] : null,
+      hasDamage: entity.hasDamage ?? false,
       location: { lat, lng },
       impact: {
         affected: entity.affected,
         housesAffected: entity.housesAffected,
         evacuated: entity.evacuated,
         deceased: entity.deceased,
+        homeless: entity.homeless ?? 0,
       },
       occurredAt: entity.occurredAt.toISOString(),
       updatedAt: entity.updatedAt.toISOString(),

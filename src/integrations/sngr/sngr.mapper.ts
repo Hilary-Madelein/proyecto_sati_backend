@@ -4,7 +4,7 @@ import { normalizeTime, parseEcuadorDateTime } from '../../common/time/ecuador-t
 import { HAZARD_TYPES } from '../../modules/events/domain/hazard-type.js';
 import type { NormalizedEvent } from '../../modules/events/domain/normalized-event.js';
 import type { Severity } from '../../modules/events/domain/severity.js';
-import { floodTypeFromSngrEvent, impactLevelFromSngrEvent, waterBodyFromDescription } from './sngr-flood.classifier.js';
+import { floodTypeFromSngrEvent, hasDamageFromSngrEvent } from './sngr-flood.classifier.js';
 import { sngrEventSchema, type SngrEvent } from './sngr.schema.js';
 
 export const SNGR_SOURCE_KEY = 'sngr';
@@ -15,13 +15,6 @@ export const NOT_A_FLOOD = 'no es inundación';
 /** "Inundación " -> "inundacion": sin tildes, minúsculas y sin espacios sobrantes. */
 const normalizeName = (value: string) =>
   value.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().replace(/\s+/g, ' ').trim();
-
-/** "Río Balao" -> "del río Balao"; "Quebrada Higuerillas" -> "de la quebrada Higuerillas". */
-function waterBodyWithArticle(waterBody: string): string {
-  const [kind, ...name] = waterBody.split(' ');
-  const article = kind === 'Quebrada' ? 'de la' : 'del';
-  return `${article} ${kind.toLowerCase()} ${name.join(' ')}`;
-}
 
 /**
  * Severidad a partir del nivel oficial de la SNGR (NivelDelEvento):
@@ -78,8 +71,7 @@ export function mapSngrEvent(raw: unknown): SngrMapResult {
   // deslizamientos, vendavales, granizadas… se descartan.
   const hazardType = floodTypeFromSngrEvent(record);
   if (!hazardType) return { ok: false, reason: NOT_A_FLOOD };
-  const waterBody = hazardType === 'river_flood' ? waterBodyFromDescription(record.DescripcionGeneralDeEvento) : null;
-  const label = waterBody ? `Desborde ${waterBodyWithArticle(waterBody)}` : HAZARD_TYPES[hazardType];
+  const label = HAZARD_TYPES[hazardType];
   const province = toTitleCase(record.Provincia) || null;
   const canton = toTitleCase(record.Canton) || null;
 
@@ -98,8 +90,7 @@ export function mapSngrEvent(raw: unknown): SngrMapResult {
       province,
       canton,
       sector: record['Comunidad/Barrio/Sector'],
-      waterBody,
-      impactLevel: impactLevelFromSngrEvent(record),
+      hasDamage: hasDamageFromSngrEvent(record),
       latitude,
       longitude,
       occurredAt,
@@ -108,6 +99,7 @@ export function mapSngrEvent(raw: unknown): SngrMapResult {
         housesAffected: record.ViviendasAfectadas,
         evacuated: record.PersonasEvacuadas,
         deceased: record.PersonasFallecidas,
+        homeless: record.PersonasDamnificadas,
       },
       raw,
     },

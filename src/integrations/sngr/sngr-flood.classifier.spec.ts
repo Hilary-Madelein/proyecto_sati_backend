@@ -1,4 +1,4 @@
-import { floodTypeFromSngrEvent, impactLevelFromSngrEvent, waterBodyFromDescription } from './sngr-flood.classifier.js';
+import { floodTypeFromSngrEvent, hasDamageFromSngrEvent } from './sngr-flood.classifier.js';
 import { sngrEventSchema } from './sngr.schema.js';
 
 const classify = (Evento: string, DescripcionGeneralDeEvento: string, Causa = 'Lluvias intensas') =>
@@ -36,6 +36,19 @@ describe('floodTypeFromSngrEvent', () => {
       'drainage_flood',
     ],
     ['Inundación', 'el fuerte oleaje provocó el ingreso de agua a las viviendas', 'coastal_flood'],
+    [
+      'Inundación',
+      'hubo una inundación que afectó varias comunidades. El río presenta tendencia a aumentar de nivel',
+      'river_flood',
+    ],
+    ['Inundación', 'se registró el aumento y desbordamiento del caudal del canal El Burro', 'drainage_flood'],
+    ['Inundación', 'se produjo la acumulación de aguas lluvias en los canales de riego', 'drainage_flood'],
+    [
+      'Inundación',
+      'se produjo el taponamiento de la alcantarilla donde pasa un estero S/N, ocasionando el incremento del nivel del agua',
+      'drainage_flood',
+    ],
+    ['Lluvias Intensas', 'la escorrentía afectó a cuatro viviendas', 'rain_flood'],
   ])('%s: "%s" -> %s', (evento, description, expected) => {
     expect(classify(evento, description)).toBe(expected);
   });
@@ -67,22 +80,7 @@ describe('floodTypeFromSngrEvent', () => {
   });
 });
 
-describe('waterBodyFromDescription', () => {
-  it.each([
-    ['se reportó desbordamiento del río La Clementina, dejando 5 metros', 'Río La Clementina'],
-    ['el desbordamiento del rio Esmeraldas, inundando varios sectores', 'Río Esmeraldas'],
-    ['incremento del nivel del estero Guachapelí, ocasionando', 'Estero Guachapelí'],
-    ['incremento del caudal de la quebrada Higuerillas misma que', 'Quebrada Higuerillas'],
-    ['desbordamiento del Río San Pablo de Amalí', 'Río San Pablo de Amalí'],
-    ['desbordamiento del río, inundando el sector', null],
-    ['el estero S/N se desbordó', null],
-    [null, null],
-  ])('"%s" -> %s', (description, expected) => {
-    expect(waterBodyFromDescription(description)).toBe(expected);
-  });
-});
-
-describe('impactLevelFromSngrEvent', () => {
+describe('hasDamageFromSngrEvent', () => {
   const REQUIRED = {
     FechaDelEvento: '1/10/2026',
     NivelDelEvento: 'Nivel 1',
@@ -92,15 +90,14 @@ describe('impactLevelFromSngrEvent', () => {
   const figures = (values: object) => sngrEventSchema.parse({ ...REQUIRED, ...values });
 
   it.each([
-    [{ PersonasDamnificadas: '4' }, 'high'],
-    [{ PersonasEvacuadas: '12' }, 'high'],
-    [{ ViviendasDestruidas: '1' }, 'high'],
-    [{ ViviendasAfectadas: '3' }, 'medium'],
-    [{ HaCultivoPerdidos: '0.50' }, 'medium'],
-    [{ PuentesAfectados: '1' }, 'medium'],
-    [{ MetrosLinealesDeViasAfectadas: '200' }, 'low'],
-    [{}, 'low'],
+    [{ PersonasDamnificadas: '4' }, true],
+    [{ ViviendasAfectadas: '3' }, true],
+    [{ FamiliasAfectadas: '79' }, true],
+    [{ HaCultivoPerdidos: '0.50' }, true],
+    [{ EstablecimientosEducativosAfectados: '1' }, true],
+    [{ MetrosLinealesDeViasAfectadas: '200' }, false],
+    [{}, false],
   ])('%o -> %s', (values, expected) => {
-    expect(impactLevelFromSngrEvent(figures(values))).toBe(expected);
+    expect(hasDamageFromSngrEvent(figures(values))).toBe(expected);
   });
 });

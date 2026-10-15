@@ -15,4 +15,6 @@ export interface EventImpact {
   housesAffected: number;
   evacuated: number;
   deceased: number;
+  /** Damnificados: perdieron la vivienda o no pueden habitarla. */
+  homeless: number;
 }
