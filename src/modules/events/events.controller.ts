@@ -1,5 +1,6 @@
 import { Controller, Get, Param, ParseUUIDPipe, Query } from '@nestjs/common';
 import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { FLOOD_HAZARD_TYPES } from './domain/hazard-type.js';
 import { EventFiltersQuery, ListEventsQuery } from './dto/list-events.query.js';
 import { HazardEventPageResponse, HazardEventResponse } from './dto/hazard-event.response.js';
 import { EventsService, type EventFilters } from './events.service.js';
@@ -12,7 +13,7 @@ export class EventsController {
   constructor(private readonly events: EventsService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Lista eventos (inundaciones, deslizamientos, …) con filtros' })
+  @ApiOperation({ summary: 'Lista inundaciones (desbordes de ríos, por lluvia, por drenaje…) con filtros' })
   @ApiOkResponse({ type: HazardEventPageResponse })
   async list(@Query() query: ListEventsQuery): Promise<HazardEventPageResponse> {
     const { items, total } = await this.events.list(toFilters(query), { limit: query.limit, offset: query.offset });
@@ -43,7 +44,9 @@ function toFilters(query: EventFiltersQuery): EventFilters {
     from,
     to,
     province: query.province,
-    hazardTypes: query.hazardType,
+    // Sin tipo pedido, solo inundaciones: así no aparecen los deslizamientos u
+    // otros eventos que se guardaron antes de filtrarlos en la sincronización.
+    hazardTypes: query.hazardType?.length ? query.hazardType : [...FLOOD_HAZARD_TYPES],
     severities: query.severity,
     status: query.status,
     bbox: query.bbox?.split(',').map(Number) as EventFilters['bbox'],

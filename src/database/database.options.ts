@@ -8,6 +8,7 @@ import { NotificationSubscriberEntity } from '../modules/notifications/entities/
 import { InitialSchema1790985600000 } from './migrations/1790985600000-initial-schema.js';
 import { Notifications1791244800000 } from './migrations/1791244800000-notifications.js';
 import { AdminAccounts1791331200000 } from './migrations/1791331200000-admin-accounts.js';
+import { EventFloodDetails1791936000000 } from './migrations/1791936000000-event-flood-details.js';
 
 /**
  * Entidades y migraciones se listan explícitamente (sin patrones de archivos):
@@ -21,7 +22,12 @@ export const ENTITIES = [
   AdminUserEntity,
   AdminSessionEntity,
 ];
-export const MIGRATIONS = [InitialSchema1790985600000, Notifications1791244800000, AdminAccounts1791331200000];
+export const MIGRATIONS = [
+  InitialSchema1790985600000,
+  Notifications1791244800000,
+  AdminAccounts1791331200000,
+  EventFloodDetails1791936000000,
+];
 
 export function buildDataSourceOptions(databaseUrl: string, ssl: boolean): DataSourceOptions {
   return {

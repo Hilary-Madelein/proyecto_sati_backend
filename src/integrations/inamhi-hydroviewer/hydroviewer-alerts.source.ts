@@ -41,13 +41,13 @@ export class HydroviewerAlertsSource extends RiverAlertSource {
     // El pronóstico del día se publica durante la mañana: si aún no está, se usa el anterior.
     for (let back = 0; back <= MAX_DAYS_BACK; back++) {
       const date = toEcuadorDate(new Date(Date.now() - back * DAY_MS));
-      const snapshot = await this.fetchSnapshot(date);
+      const snapshot = await this.getAlertsOn(date);
       if (snapshot) return snapshot;
     }
     throw new UpstreamError(SERVICE, `no hay pronósticos publicados en los últimos ${MAX_DAYS_BACK + 1} días`);
   }
 
-  private async fetchSnapshot(date: string): Promise<RiverAlertsSnapshot | null> {
+  async getAlertsOn(date: string): Promise<RiverAlertsSnapshot | null> {
     const byRiver = new Map<number, RiverAlert>();
     let dayCount = 0;
 
@@ -80,6 +80,9 @@ export class HydroviewerAlertsSource extends RiverAlertSource {
           river: props.river && props.river !== '-' ? String(props.river) : null,
           dailyLevels,
           maxLevel: Math.max(0, ...dailyLevels) as AlertLevel,
+          // La persistencia la calcula el dominio con los pronósticos anteriores.
+          alertShare: null,
+          persistent: false,
         });
       }
     }
@@ -96,6 +99,7 @@ export class HydroviewerAlertsSource extends RiverAlertSource {
       days: Array.from({ length: dayCount }, (_, day) => new Date(start + day * DAY_MS).toISOString().slice(0, 10)),
       totalReaches: byRiver.size,
       alerts,
+      persistence: null,
     };
   }
 

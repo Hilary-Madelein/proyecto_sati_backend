@@ -1,10 +1,18 @@
-import { BadGatewayException, Injectable, Logger } from '@nestjs/common';
+import {
+  BadGatewayException,
+  Injectable,
+  Logger,
+  type OnApplicationBootstrap,
+  type OnModuleDestroy,
+} from '@nestjs/common';
 import { mapWithConcurrency } from '../../common/async/map-with-concurrency.js';
 import { TtlCache } from '../../common/cache/ttl-cache.js';
 import { UpstreamError } from '../../common/http/upstream.error.js';
 import { WeatherStationSource, type HourlyRain, type WeatherStation } from './weather-station-source.js';
 
 const MINUTE_MS = 60 * 1000;
+/** La fuente publica un dato por hora: se vuelve a consultar cada 10 minutos, en segundo plano. */
+const REFRESH_MS = 10 * MINUTE_MS;
 /** Pedidos simultáneos a la fuente al consultar todas las estaciones. */
 const CONCURRENCY = 8;
 
@@ -38,24 +46,57 @@ export function summarizeRain(hours: readonly HourlyRain[]): Pick<StationRain, '
 }
 
 /**
- * Lluvia medida por las estaciones en las últimas horas. Consulta cada estación
- * que transmite y guarda el resultado unos minutos: la fuente publica un dato por hora.
+ * Lluvia medida por las estaciones en las últimas horas. Consultar cada estación
+ * que transmite puede tardar más de lo que espera el frontend (en el servidor
+ * publicado pasó del minuto), así que se carga en segundo plano y se entrega
+ * siempre la última carga buena, aunque tenga unos minutos.
  */
 @Injectable()
-export class WeatherStationsService {
+export class WeatherStationsService implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly logger = new Logger(WeatherStationsService.name);
   private readonly stationsCache = new TtlCache<WeatherStation[]>(6 * 60 * MINUTE_MS, 1);
-  private readonly snapshotCache = new TtlCache<WeatherStationsSnapshot>(10 * MINUTE_MS, 1);
+  private latest: WeatherStationsSnapshot | null = null;
+  private loading: Promise<WeatherStationsSnapshot> | null = null;
+  private refreshTimer?: NodeJS.Timeout;
 
   constructor(private readonly source: WeatherStationSource) {}
 
+  onApplicationBootstrap(): void {
+    this.refreshInBackground();
+    this.refreshTimer = setInterval(() => this.refreshInBackground(), REFRESH_MS);
+  }
+
+  onModuleDestroy(): void {
+    clearInterval(this.refreshTimer);
+  }
+
+  /** La última carga al instante; solo la primera consulta tras arrancar espera a la fuente. */
   async snapshot(): Promise<WeatherStationsSnapshot> {
+    if (this.latest) {
+      // Por si el temporizador no corrió (p. ej. el servidor estuvo dormido).
+      if (Date.now() - Date.parse(this.latest.updatedAt) > REFRESH_MS) this.refreshInBackground();
+      return this.latest;
+    }
     try {
-      return await this.snapshotCache.get('latest', () => this.load());
+      return await this.refresh();
     } catch (error) {
       if (error instanceof UpstreamError) throw new BadGatewayException(error.message);
       throw error;
     }
+  }
+
+  /** Una sola carga a la vez: las consultas que llegan mientras tanto esperan la misma. */
+  private refresh(): Promise<WeatherStationsSnapshot> {
+    this.loading ??= this.load()
+      .then((snapshot) => (this.latest = snapshot))
+      .finally(() => (this.loading = null));
+    return this.loading;
+  }
+
+  private refreshInBackground(): void {
+    this.refresh().catch((error: unknown) =>
+      this.logger.warn(`No se pudo actualizar la lluvia de las estaciones: ${(error as Error).message}`),
+    );
   }
 
   private async load(): Promise<WeatherStationsSnapshot> {

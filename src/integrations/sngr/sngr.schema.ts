@@ -1,9 +1,15 @@
 import { z } from 'zod';
 
 /** Cantidades que llegan como texto ("4", "0.00"), vacías o nulas: se tratan como 0. */
-const count = z.unknown().transform((value) => {
+const count = z.unknown().optional().transform((value) => {
   const parsed = Number.parseFloat(String(value ?? ''));
   return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : 0;
+});
+
+/** Superficies que llegan como texto ("0.50"), vacías o nulas: sin redondear; 0 si no hay dato. */
+const amount = z.unknown().optional().transform((value) => {
+  const parsed = Number.parseFloat(String(value ?? ''));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
 });
 
 /** "Nivel 2" -> 2. Null si no trae un número. */
@@ -14,6 +20,7 @@ const eventLevel = z.unknown().transform((value) => {
 
 const optionalText = z
   .unknown()
+  .optional()
   .transform((value) => (value === null || value === undefined ? null : String(value).trim() || null));
 
 /** Número o texto numérico; null si está vacío o no es un número. */
@@ -53,6 +60,8 @@ export function toIsoDate(value: unknown): string | null {
 export const sngrEventSchema = z.looseObject({
   /** Nombre del evento según el catálogo de la SNGR: "Inundación", "Deslizamiento", "Vendaval"… */
   Evento: optionalText,
+  /** Causa declarada ("Lluvias intensas", "Desbordamiento de cuerpos de agua"…). */
+  Causa: optionalText,
   /** Nivel oficial del evento: "Nivel 1", "Nivel 2", "Nivel 3"… */
   NivelDelEvento: eventLevel,
   /** "Seguimiento" mientras sigue abierto; "Cierre" cuando está cerrado. */
@@ -75,6 +84,16 @@ export const sngrEventSchema = z.looseObject({
   ViviendasAfectadas: count,
   PersonasEvacuadas: count,
   PersonasFallecidas: count,
+  PersonasExtraviadas: count,
+  PersonasDamnificadas: count,
+  FamiliasAfectadas: count,
+  ViviendasDestruidas: count,
+  PuentesAfectados: count,
+  PuentesDestruidos: count,
+  EstablecimientosEducativosAfectados: count,
+  CentrosDeSaludAfectados: count,
+  HaCultivoAfectados: amount,
+  HaCultivoPerdidos: amount,
 });
 
 export type SngrEvent = z.infer<typeof sngrEventSchema>;

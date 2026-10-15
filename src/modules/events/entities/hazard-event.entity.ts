@@ -7,7 +7,7 @@ import {
   Unique,
   type Point,
 } from 'typeorm';
-import type { HazardType } from '../domain/hazard-type.js';
+import type { HazardType, ImpactLevel } from '../domain/hazard-type.js';
 import type { EventStatus } from '../domain/normalized-event.js';
 import type { Severity } from '../domain/severity.js';
 
@@ -56,6 +56,14 @@ export class HazardEventEntity {
 
   @Column({ type: 'varchar', length: 255, nullable: true })
   sector: string | null;
+
+  /** Río, estero o quebrada que se desbordó ("Río Balao"). */
+  @Column({ name: 'water_body', type: 'varchar', length: 120, nullable: true })
+  waterBody: string | null;
+
+  /** Impacto según las cifras de daños: high, medium o low. */
+  @Column({ name: 'impact_level', type: 'varchar', length: 8, nullable: true })
+  impactLevel: ImpactLevel | null;
 
   /** Punto WGS84 (PostGIS). Permite filtrar por zona o distancia. */
   @Index('ix_hazard_events_location', { spatial: true })

@@ -55,4 +55,15 @@ describe('WeatherStationsService', () => {
       [3, null, 0],
     ]);
   });
+
+  it('entrega la última carga sin volver a consultar la fuente', async () => {
+    const source = new FakeSource();
+    const service = new WeatherStationsService(source);
+    const [first, second] = await Promise.all([service.snapshot(), service.snapshot()]);
+    const third = await service.snapshot();
+
+    expect(source.asked.sort()).toEqual([1, 3]);
+    expect(second).toBe(first);
+    expect(third).toBe(first);
+  });
 });
