@@ -9,6 +9,7 @@ import { InitialSchema1790985600000 } from './migrations/1790985600000-initial-s
 import { Notifications1791244800000 } from './migrations/1791244800000-notifications.js';
 import { AdminAccounts1791331200000 } from './migrations/1791331200000-admin-accounts.js';
 import { EventFloodDetails1791936000000 } from './migrations/1791936000000-event-flood-details.js';
+import { EventDamage1792022400000 } from './migrations/1792022400000-event-damage.js';
 
 /**
  * Entidades y migraciones se listan explícitamente (sin patrones de archivos):
@@ -27,6 +28,7 @@ export const MIGRATIONS = [
   Notifications1791244800000,
   AdminAccounts1791331200000,
   EventFloodDetails1791936000000,
+  EventDamage1792022400000,
 ];
 
 export function buildDataSourceOptions(databaseUrl: string, ssl: boolean): DataSourceOptions {

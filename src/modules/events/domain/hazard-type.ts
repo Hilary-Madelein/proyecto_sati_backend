@@ -28,9 +28,3 @@ export const HAZARD_TYPE_VALUES = Object.keys(HAZARD_TYPES) as HazardType[];
 
 /** Inundaciones: lo único que se muestra cuando no se pide un tipo concreto. */
 export const FLOOD_HAZARD_TYPES: readonly HazardType[] = ['river_flood', 'rain_flood', 'drainage_flood', 'coastal_flood', 'flood'];
-
-/** Impacto según las cifras de daños: alto, medio o bajo. */
-export const IMPACT_LEVELS = ['high', 'medium', 'low'] as const;
-export type ImpactLevel = (typeof IMPACT_LEVELS)[number];
-
-export const IMPACT_LEVEL_LABELS: Record<ImpactLevel, string> = { high: 'Alto', medium: 'Medio', low: 'Bajo' };

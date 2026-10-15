@@ -1,4 +1,4 @@
-import type { HazardType, ImpactLevel } from './hazard-type.js';
+import type { HazardType } from './hazard-type.js';
 import type { EventImpact, Severity } from './severity.js';
 
 export type EventStatus = 'open' | 'closed';
@@ -25,10 +25,8 @@ export interface NormalizedEvent {
   province: string | null;
   canton: string | null;
   sector: string | null;
-  /** Río, estero o quebrada que se desbordó, si la fuente lo nombra ("Río Balao"). */
-  waterBody: string | null;
-  /** Impacto según las cifras de daños; null si la fuente no da cifras para calcularlo. */
-  impactLevel: ImpactLevel | null;
+  /** La fuente registró daño en personas, viviendas, cultivos o servicios (no solo calles con agua). */
+  hasDamage: boolean;
   latitude: number;
   longitude: number;
   occurredAt: Date;

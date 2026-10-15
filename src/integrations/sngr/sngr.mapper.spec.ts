@@ -47,11 +47,10 @@ describe('mapSngrEvent', () => {
       province: 'Los Rios',
       canton: 'Babahoyo',
       sector: 'Barrio El Salto',
-      waterBody: null,
-      impactLevel: 'medium',
+      hasDamage: true,
       latitude: -1.8,
       longitude: -79.53,
-      impact: { affected: 150, housesAffected: 30, evacuated: 0, deceased: 0 },
+      impact: { affected: 150, housesAffected: 30, evacuated: 0, deceased: 0, homeless: 0 },
     });
     expect(result.event.occurredAt.toISOString()).toBe('2026-10-01T14:40:00.000Z');
     expect(result.event.raw).toBe(baseRecord);
@@ -73,19 +72,10 @@ describe('mapSngrEvent', () => {
     expect(result.ok && result.event.status).toBe('closed');
   });
 
-  it('nombra en el título el río desbordado', () => {
+  it('no nombra el río en el título', () => {
     const description = 'Se produjo el desbordamiento del río La Clementina.';
     const result = mapSngrEvent({ ...baseRecord, DescripcionGeneralDeEvento: description });
-    expect(result.ok && { waterBody: result.event.waterBody, title: result.event.title }).toEqual({
-      waterBody: 'Río La Clementina',
-      title: 'Desborde del río La Clementina en Babahoyo',
-    });
-  });
-
-  it('usa "de la" con las quebradas', () => {
-    const description = 'Incremento del caudal de la quebrada Higuerillas.';
-    const result = mapSngrEvent({ ...baseRecord, DescripcionGeneralDeEvento: description });
-    expect(result.ok && result.event.title).toBe('Desborde de la quebrada Higuerillas en Babahoyo');
+    expect(result.ok && result.event.title).toBe('Desborde de río en Babahoyo');
   });
 
   it.each(['Deslizamiento', 'Vendaval', 'Granizada'])('descarta lo que no es inundación: %s', (Evento) => {

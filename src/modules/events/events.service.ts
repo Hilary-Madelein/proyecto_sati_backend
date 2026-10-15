@@ -83,12 +83,12 @@ export class EventsService {
   }
 
   /**
-   * Lo que se deduce del registro (tipo, título, río, impacto) puede cambiar
+   * Lo que se deduce del registro (tipo, título, daño) puede cambiar
    * aunque el registro no cambie, cuando mejora la clasificación: así los eventos
    * ya guardados se reclasifican en la siguiente sincronización.
    */
   private classificationChanged(current: HazardEventEntity, columns: Partial<HazardEventEntity>): boolean {
-    return (['hazardType', 'title', 'waterBody', 'impactLevel'] as const).some((key) => (current[key] ?? null) !== columns[key]);
+    return (['hazardType', 'title', 'hasDamage', 'homeless'] as const).some((key) => (current[key] ?? null) !== columns[key]);
   }
 
   private toColumns(item: NormalizedEvent, contentHash: string): Partial<HazardEventEntity> {
@@ -105,14 +105,14 @@ export class EventsService {
       province: item.province,
       canton: item.canton,
       sector: item.sector?.slice(0, 255) ?? null,
-      waterBody: item.waterBody?.slice(0, 120) ?? null,
-      impactLevel: item.impactLevel,
+      hasDamage: item.hasDamage,
       location: { type: 'Point', coordinates: [item.longitude, item.latitude] },
       occurredAt: item.occurredAt,
       affected: item.impact.affected,
       housesAffected: item.impact.housesAffected,
       evacuated: item.impact.evacuated,
       deceased: item.impact.deceased,
+      homeless: item.impact.homeless,
       raw: item.raw,
       contentHash,
     };
