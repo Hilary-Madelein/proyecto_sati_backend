@@ -18,6 +18,7 @@ import {
   zonalP90,
   type CantonShape,
 } from './canton-geometry.js';
+import { preparednessIndex, type PreparednessIndicator, type ProvincePreparedness } from './preparedness.js';
 import {
   SEMAPHORE_RANK,
   classifyRain,
@@ -37,6 +38,8 @@ const FIRST_RUN_DELAY_MS = MINUTE_MS;
 /** Ventanas del semáforo, contadas desde ahora (pasos de 3 h del WRF): manda la más alta de las dos. */
 const FORECAST_SHORT_HOURS = 12;
 const FORECAST_LONG_HOURS = 24;
+/** Código DPA de las zonas no delimitadas (no son una provincia). */
+const UNDEFINED_ZONE_CODE = '90';
 /** Eventos de la SNGR recientes que cuentan como detonante. */
 const RECENT_EVENTS_MS = 72 * HOUR_MS;
 /** Días del pronóstico de caudales que se miran (hoy y mañana). */
@@ -129,6 +132,8 @@ export interface CantonAnalysisSnapshot {
   counts: Record<Semaphore, number> & { noData: number };
   /** Todos los cantones, del más al menos afectado. */
   cantons: CantonAnalysis[];
+  /** Índice de preparación de las 24 provincias (ISPP-FEN, ver preparedness.ts), de la más a la menos preparada. */
+  provinces: ProvincePreparedness[];
   sources: SourceStatus[];
 }
 
@@ -307,8 +312,10 @@ export class CantonAnalysisService implements OnApplicationBootstrap, OnModuleDe
       bridges: countPoints(l.get('bridges')),
       bridgesBad: countPoints(l.get('bridges'), (f) => ['MALO', 'COLAPSADO'].includes(text(f, 'ESTADO'))),
       floodTowns: countPoints(l.get('flood-prone-towns')),
-      actions: countPoints(l.get('rve-preventive-works')),
+      // Realizadas: las que ya empezaron (no las planificadas).
+      actions: countPoints(l.get('rve-preventive-works'), (f) => Date.parse(String(f.properties.fecha_de_inicio ?? '')) <= Date.now()),
       enosWorksActive: countPoints(l.get('el-nino-road-projects'), (f) => text(f, 'Estado_actual') === 'EN EJECUCIÓN'),
+      roadProjects: countPoints(l.get('el-nino-road-projects'), (f) => ['EN EJECUCIÓN', 'FINALIZADO'].includes(text(f, 'Estado_actual'))),
       culverts: countPoints(l.get('culverts-zone7')),
       shelters: countPoints(l.get('shelters')),
       sheltersActive: countPoints(l.get('shelters'), (f) => text(f, 'ESTADO') === 'ACTIVO'),
@@ -398,6 +405,27 @@ export class CantonAnalysisService implements OnApplicationBootstrap, OnModuleDe
         b.triggers.riverAlerts - a.triggers.riverAlerts,
     );
 
+    // Índice de preparación por provincia (documento "Semaforización para componente Preparación"),
+    // con los recursos efectivos: alojamientos calificados por la SNGR ("ACTIVO" es que ya alojan
+    // gente), todos los campamentos del MTOP (la capa no dice si operan), las acciones preventivas
+    // ya empezadas y los proyectos viales en ejecución o terminados. Las alcantarillas limpiadas no
+    // entran: solo hay registro de la Zona 7 y harían que Loja pese por todas.
+    const provinceTotals = new Map<string, { code: string; name: string; counts: Record<PreparednessIndicator, number> }>();
+    for (const canton of shapes) {
+      const code = canton.code.slice(0, 2);
+      if (code === UNDEFINED_ZONE_CODE) continue;
+      const row = provinceTotals.get(code) ?? {
+        code,
+        name: canton.province,
+        counts: { shelters: 0, camps: 0, preventiveActions: 0, roadProjects: 0 },
+      };
+      row.counts.shelters += get(counts.shelters, canton.code);
+      row.counts.camps += get(counts.camps, canton.code);
+      row.counts.preventiveActions += get(counts.actions, canton.code);
+      row.counts.roadProjects += get(counts.roadProjects, canton.code);
+      provinceTotals.set(code, row);
+    }
+
     this.logger.log(`Análisis por cantón listo en ${((Date.now() - started) / 1000).toFixed(1)} s`);
     return {
       updatedAt: new Date().toISOString(),
@@ -411,6 +439,7 @@ export class CantonAnalysisService implements OnApplicationBootstrap, OnModuleDe
         noData: cantons.filter((canton) => canton.decidedBy === null).length,
       },
       cantons,
+      provinces: preparednessIndex([...provinceTotals.values()]),
       sources,
     };
   }
