@@ -1,6 +1,7 @@
 import type { RasterGrid } from '../../common/raster/raster-grid.js';
 import { CantonLocator, bboxOf, distanceKm, ringsOf, segmentsOf, zonalP90, type CantonShape } from './canton-geometry.js';
 import { classifyRain, classifyRain12h, classifyRain24h } from './rain-thresholds.js';
+import { preparednessIndex, preparednessLevel } from './preparedness.js';
 
 describe('classifyRain12h', () => {
   it('usa los umbrales de 12 h del documento con tres colores (el naranja pasa a rojo)', () => {
@@ -46,6 +47,42 @@ describe('classifyRain: S = máx(S12h, S24h)', () => {
   it('sin ningún dato no clasifica (no es verde)', () => {
     expect(classifyRain(null, null)).toBeNull();
     expect(classifyRain(null, 12)?.band.semaphore).toBe('yellow');
+  });
+});
+
+describe('preparednessIndex (ISPP-FEN)', () => {
+  it('reproduce el ejemplo del documento: 100, 56,7 y 27,9', () => {
+    const result = preparednessIndex([
+      { code: 'C', name: 'Provincia C', counts: { shelters: 10, camps: 1, preventiveActions: 40, roadProjects: 2 } },
+      { code: 'A', name: 'Provincia A', counts: { shelters: 30, camps: 4, preventiveActions: 120, roadProjects: 10 } },
+      { code: 'B', name: 'Provincia B', counts: { shelters: 15, camps: 2, preventiveActions: 80, roadProjects: 6 } },
+    ]);
+    expect(result.map((province) => [province.code, province.index, province.level])).toEqual([
+      ['A', 100, 'very-high'],
+      ['B', 56.7, 'medium'],
+      ['C', 27.9, 'low'],
+    ]);
+    expect(result[1].scores).toEqual({ shelters: 50, camps: 50, preventiveActions: 66.7, roadProjects: 60 });
+  });
+
+  it('un indicador sin registros en ninguna provincia vale 0 (no divide por cero)', () => {
+    const [only] = preparednessIndex([{ code: 'X', name: 'X', counts: { shelters: 5, camps: 0, preventiveActions: 0, roadProjects: 0 } }]);
+    expect(only.index).toBe(25);
+  });
+
+  it('usa los intervalos del semáforo del documento', () => {
+    expect([0, 20, 20.1, 40, 40.1, 60, 60.1, 80, 80.1, 100].map(preparednessLevel)).toEqual([
+      'very-low',
+      'very-low',
+      'low',
+      'low',
+      'medium',
+      'medium',
+      'high',
+      'high',
+      'very-high',
+      'very-high',
+    ]);
   });
 });
 
