@@ -1,4 +1,4 @@
-import { Controller, Get, Param } from '@nestjs/common';
+import { Controller, Get, Param, ParseIntPipe } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RiskLayersService } from './risk-layers.service.js';
 
@@ -17,5 +17,11 @@ export class RiskLayersController {
   @ApiOperation({ summary: 'Entidades de la capa (GeoJSON en WGS84) con su fuente y fecha de descarga' })
   get(@Param('id') id: string) {
     return this.layers.get(id);
+  }
+
+  @Get(':id/features/:objectId/attachments')
+  @ApiOperation({ summary: 'Fotos de una entidad (solo imágenes), servidas desde el servicio de origen' })
+  attachments(@Param('id') id: string, @Param('objectId', ParseIntPipe) objectId: number) {
+    return this.layers.attachments(id, objectId);
   }
 }

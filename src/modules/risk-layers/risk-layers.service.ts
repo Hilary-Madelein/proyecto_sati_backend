@@ -2,7 +2,12 @@ import { BadGatewayException, Injectable, Logger, NotFoundException } from '@nes
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { UpstreamError } from '../../common/http/upstream.error.js';
-import { fetchArcgisLayer, type GeoJsonFeature } from '../../integrations/arcgis/arcgis-feature-layer.js';
+import {
+  fetchArcgisAttachments,
+  fetchArcgisLayer,
+  type ArcgisAttachment,
+  type GeoJsonFeature,
+} from '../../integrations/arcgis/arcgis-feature-layer.js';
 import type { RiskLayerDefinition, RiskLayerSummary } from './risk-layer.js';
 import { RISK_LAYERS } from './risk-layers.catalog.js';
 
@@ -24,6 +29,8 @@ export interface RiskLayerData {
   isStale: boolean;
   /** Entidades del origen que no se entregan por no tener ubicación o tenerla fuera del Ecuador. */
   omitted: number;
+  /** Las entidades pueden tener fotos (GET /risk-layers/:id/features/:objectId/attachments). */
+  hasAttachments: boolean;
   type: 'FeatureCollection';
   features: GeoJsonFeature[];
 }
@@ -73,6 +80,19 @@ export class RiskLayersService {
     }
   }
 
+  /** Fotos de una entidad de una capa de ArcGIS, por su id (el de la entidad en GET /risk-layers/:id). */
+  async attachments(id: string, objectId: number): Promise<ArcgisAttachment[]> {
+    const layer = this.layers.get(id);
+    if (!layer) throw new NotFoundException(`No existe la capa "${id}"`);
+    if (layer.source.kind !== 'arcgis') return [];
+    try {
+      return await fetchArcgisAttachments(layer.source.layerUrl, objectId);
+    } catch (error) {
+      if (error instanceof UpstreamError) throw new BadGatewayException(error.message);
+      throw error;
+    }
+  }
+
   /** Una sola descarga por capa a la vez: los pedidos simultáneos esperan la misma. */
   private load(layer: RiskLayerDefinition): Promise<RiskLayerData> {
     let pending = this.loading.get(layer.id);
@@ -95,13 +115,13 @@ export class RiskLayersService {
 
     if (layer.source.kind === 'file') {
       const json = JSON.parse(await readFile(join(FILES_DIR, layer.source.file), 'utf8')) as { features: GeoJsonFeature[] };
-      return { ...base, fetchedAt, sourceUpdatedAt: null, ...located(json.features) };
+      return { ...base, fetchedAt, sourceUpdatedAt: null, hasAttachments: false, ...located(json.features) };
     }
 
     const started = Date.now();
-    const { features, lastEditDate } = await fetchArcgisLayer(layer.source.layerUrl, layer.source);
+    const { features, lastEditDate, hasAttachments } = await fetchArcgisLayer(layer.source.layerUrl, layer.source);
     this.logger.log(`Capa "${layer.id}": ${features.length} entidades en ${((Date.now() - started) / 1000).toFixed(1)} s`);
-    return { ...base, fetchedAt, sourceUpdatedAt: lastEditDate, ...located(features) };
+    return { ...base, fetchedAt, sourceUpdatedAt: lastEditDate, hasAttachments, ...located(features) };
   }
 }
 

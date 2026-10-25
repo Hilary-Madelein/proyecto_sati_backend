@@ -21,4 +21,15 @@ describe('toFeature', () => {
     );
     expect(feature.properties).toEqual({ fecha: '2026-10-13T17:00:00.000Z', obs: null, nombre: 'Puente Chanchán' });
   });
+
+  it('lleva el OBJECTID al id de la entidad y no a sus datos', () => {
+    const feature = toFeature(
+      { type: 'Feature', geometry, properties: { objectid: 42, estado: 'BAJA' } },
+      ['estado'],
+      new Set(),
+      'objectid',
+    );
+    expect(feature.id).toBe(42);
+    expect(feature.properties).toEqual({ estado: 'BAJA' });
+  });
 });
