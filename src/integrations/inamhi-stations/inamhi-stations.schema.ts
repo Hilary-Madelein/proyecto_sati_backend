@@ -28,14 +28,22 @@ const stationSchema = z.object({
 
 export const stationsResponseSchema = z.object({ datos: z.array(stationSchema) });
 
+/**
+ * Lluvia horaria. Desde el 25/10/2026 la API la entrega en `valor_1h` (antes, en
+ * `1h`): se aceptan los dos nombres.
+ */
 export const hourlyResponseSchema = z.object({
   datos: z.array(
     z.object({
       fecha_toma_dato: z.string(),
-      '1h': optionalAmount,
+      valor_1h: optionalAmount.optional(),
+      '1h': optionalAmount.optional(),
     }),
   ),
 });
+
+/** Margen para decidir que una hora "está en el futuro" (relojes desfasados, dato recién publicado). */
+const FUTURE_TOLERANCE_MS = 30 * 60 * 1000;
 
 /** Cada parte separada por guion empieza con mayúscula: "QUITO AEROPUERTO- PARQUE BIC" → "Quito Aeropuerto - Parque Bic". */
 function stationName(value: string): string {
@@ -66,17 +74,26 @@ export function toWeatherStations(response: z.infer<typeof stationsResponseSchem
 }
 
 /**
- * Lluvia de cada hora, ordenada. La API marca las horas con "-05:00", pero la
- * hora que trae es UTC: a las 08:55 de Ecuador ya entrega el dato "13:00-05:00"
- * (comprobado el 13 de octubre de 2026). Se lee la hora tal cual, como UTC:
- * "2026-10-13T02:00:00-05:00" → "2026-10-13T02:00:00.000Z".
+ * Lluvia de cada hora, ordenada. Hasta el 24/10/2026 la API marcaba con
+ * "-05:00" horas que en realidad eran UTC (a las 08:55 de Ecuador ya entregaba
+ * el dato "13:00-05:00"); desde el 25/10 la hora es la de Ecuador de verdad (a
+ * las 07:40 el último dato es "07:00-05:00"). Se distingue por la respuesta
+ * completa: si leída con su desfase la hora más reciente cae en el futuro, es
+ * el formato viejo y las horas se leen tal cual, como UTC.
  */
-export function toHourlyRain(response: z.infer<typeof hourlyResponseSchema>): HourlyRain[] {
-  return response.datos
-    .flatMap((item) => {
-      const wallTime = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?/.exec(item.fecha_toma_dato)?.[0];
-      const time = wallTime ? Date.parse(`${wallTime}Z`) : Number.NaN;
-      return Number.isNaN(time) ? [] : [{ time: new Date(time).toISOString(), mm: item['1h'] }];
-    })
+export function toHourlyRain(response: z.infer<typeof hourlyResponseSchema>, now = Date.now()): HourlyRain[] {
+  const readings = response.datos.flatMap((item) => {
+    const wallTime = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?/.exec(item.fecha_toma_dato)?.[0];
+    if (!wallTime) return [];
+    const withOffset = Date.parse(item.fecha_toma_dato);
+    const asUtc = Date.parse(`${wallTime}Z`);
+    if (Number.isNaN(withOffset) || Number.isNaN(asUtc)) return [];
+    return [{ withOffset, asUtc, mm: item.valor_1h ?? item['1h'] ?? null }];
+  });
+  const latest = Math.max(...readings.map((reading) => reading.withOffset));
+  const mislabeledUtc = latest > now + FUTURE_TOLERANCE_MS;
+
+  return readings
+    .map((reading) => ({ time: new Date(mislabeledUtc ? reading.asUtc : reading.withOffset).toISOString(), mm: reading.mm }))
     .sort((a, b) => a.time.localeCompare(b.time));
 }
