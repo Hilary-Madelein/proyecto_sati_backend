@@ -1,0 +1,268 @@
+import type { RiskLayerDefinition } from './risk-layer.js';
+
+const SNGR_AGOL = 'https://services8.arcgis.com/csQLKpeoUQumugVg/arcgis/rest/services';
+const MTOP_AGOL = 'https://services6.arcgis.com/7VeuPjsMUY1CwfEq/arcgis/rest/services';
+
+/** Encuestas que se llenan en campo (Survey123): cambian a diario. */
+const SURVEY_REFRESH = 15;
+/** Capas de referencia que casi no cambian. */
+const STATIC_REFRESH = 12 * 60;
+
+const RPIS_FIELDS = ['UNI_NOMBRE', 'TUN_DESCRI', 'NIVEL_DESC', 'CAN_DESCRI', 'PRV_DESCRI'] as const;
+
+/**
+ * Capas por componente de la gestión del riesgo, compartidas en el grupo de
+ * trabajo el 24 y 25/10/2026. Los servicios de ArcGIS se consultan en vivo; las
+ * capas sin servicio son GeoJSON en assets/risk-layers (ya en WGS84).
+ */
+export const RISK_LAYERS: readonly RiskLayerDefinition[] = [
+  // ── Amenaza ──────────────────────────────────────────────────────────────
+  {
+    id: 'flood-model-zones',
+    title: 'Zonas inundables (modelo)',
+    component: 'amenaza',
+    attribution: 'Modelo de inundaciones de Manabí y Azuay/Cañar',
+    source: { kind: 'file', file: 'zonas-inundables.geojson' },
+  },
+  {
+    id: 'mass-movements',
+    title: 'Movimientos en masa',
+    component: 'amenaza',
+    attribution: 'SNGR',
+    source: {
+      kind: 'arcgis',
+      layerUrl: `${SNGR_AGOL}/Movimientos_en_Masa_SNGR/FeatureServer/16`,
+      fields: ['CATEGORIA', 'PENDIENTE', 'GEOLOGIA', 'NIVEL_III'],
+      maxAllowableOffset: 0.0005,
+      refreshMinutes: STATIC_REFRESH,
+    },
+  },
+  {
+    id: 'rve-critical-points',
+    title: 'Puntos críticos en la RVE',
+    component: 'amenaza',
+    attribution: 'MTOP',
+    source: {
+      kind: 'arcgis',
+      layerUrl: `${SNGR_AGOL}/Puntos_Cr%C3%ADticos_en_la_RVE/FeatureServer/0`,
+      fields: ['Nomenclatura', 'Ubicación', 'Tipo_de_amenaza', 'Zonal', 'DPA_DESPRO'],
+      refreshMinutes: STATIC_REFRESH,
+    },
+  },
+
+  // ── Exposición ───────────────────────────────────────────────────────────
+  {
+    id: 'rve',
+    title: 'Red Vial Estatal',
+    component: 'exposicion',
+    attribution: 'MTOP',
+    source: {
+      kind: 'arcgis',
+      layerUrl: `${MTOP_AGOL}/Red_Vial_Estatal_2026/FeatureServer/0`,
+      fields: ['CODIGO_DE_VIA', 'NOMBRE_TRAMO', 'CLASIFICACION', 'ESTADO', 'TIPO_CALZADA', 'NUMERO_CARRILES', 'PROVINCIA', 'DISTANCIA_KM'],
+      maxAllowableOffset: 0.0005,
+      refreshMinutes: STATIC_REFRESH,
+    },
+  },
+  {
+    id: 'bridges',
+    title: 'Puentes',
+    component: 'exposicion',
+    attribution: 'MTOP',
+    source: {
+      kind: 'arcgis',
+      layerUrl: `${MTOP_AGOL}/Puentes_fijos/FeatureServer/0`,
+      fields: ['NOMBRE_DEL_PUENTE', 'ESTADO', 'TIPO', 'LONGITUD_m', 'CARRETERA', 'EJE_VIAL', 'PROVINCIA', 'OBSERVACIONES'],
+      refreshMinutes: STATIC_REFRESH,
+    },
+  },
+  {
+    id: 'flood-prone-towns',
+    title: 'Poblados inundables',
+    component: 'exposicion',
+    attribution: 'Modelo de inundaciones de Manabí y Azuay/Cañar',
+    source: { kind: 'file', file: 'poblados-inundables.geojson' },
+  },
+  {
+    id: 'schools',
+    title: 'Instituciones educativas en zonas susceptibles',
+    component: 'exposicion',
+    attribution: 'MINEDUC',
+    source: {
+      kind: 'arcgis',
+      layerUrl: `${SNGR_AGOL}/MINEDUC_Inundaciones_y_Movimientos_en_Masa/FeatureServer/9`,
+      fields: ['AMIE', 'NOM_INSTIT', 'SUSCEPTIBI', 'SOSTENI', 'DPA_DESCAN', 'DPA_DESPRO', 'ESTUDIANTE', 'DOCENTES'],
+      refreshMinutes: STATIC_REFRESH,
+    },
+  },
+  {
+    id: 'health-centers',
+    title: 'Establecimientos de salud',
+    component: 'exposicion',
+    attribution: 'MSP · Red Pública Integral de Salud',
+    source: {
+      kind: 'arcgis',
+      layerUrl: `${SNGR_AGOL}/Establecimientos_de_salud_de_la_RPIS/FeatureServer/4`,
+      fields: [...RPIS_FIELDS, 'HAU_DESCRI', 'UNI_TELEFO'],
+      refreshMinutes: STATIC_REFRESH,
+    },
+  },
+  {
+    id: 'health-centers-floods',
+    title: 'Salud: susceptibles a inundaciones',
+    component: 'exposicion',
+    attribution: 'MSP · Red Pública Integral de Salud',
+    source: {
+      kind: 'arcgis',
+      layerUrl: `${SNGR_AGOL}/RPIS_Susceptibles_a_Inundaciones/FeatureServer/6`,
+      fields: [...RPIS_FIELDS, 'susce_inun'],
+      refreshMinutes: STATIC_REFRESH,
+    },
+  },
+  {
+    id: 'health-centers-mass-movements',
+    title: 'Salud: susceptibles a movimientos en masa',
+    component: 'exposicion',
+    attribution: 'MSP · Red Pública Integral de Salud',
+    source: {
+      kind: 'arcgis',
+      layerUrl: `${SNGR_AGOL}/RPIS_Susceptibles_a_Movimientos_de_Masa/FeatureServer/7`,
+      fields: [...RPIS_FIELDS, 'CATEGORIA'],
+      refreshMinutes: STATIC_REFRESH,
+    },
+  },
+  {
+    id: 'health-centers-priority',
+    title: 'Salud: priorizados',
+    component: 'exposicion',
+    attribution: 'MSP · Red Pública Integral de Salud',
+    source: {
+      kind: 'arcgis',
+      layerUrl: `${SNGR_AGOL}/RPIS_Priorizados/FeatureServer/8`,
+      fields: RPIS_FIELDS,
+      refreshMinutes: STATIC_REFRESH,
+    },
+  },
+
+  // ── Preparación ──────────────────────────────────────────────────────────
+  {
+    id: 'machinery',
+    title: 'Maquinaria pesada',
+    component: 'preparacion',
+    attribution: 'MTOP · DCOIT',
+    source: {
+      kind: 'arcgis',
+      layerUrl: `${MTOP_AGOL}/survey123_0ebc12395a634690be3d59498aa6cffd/FeatureServer/0`,
+      // Sin registro, chasis, motor ni nombre del operador.
+      fields: [
+        'tipo_de_maquinaria_y_veh_culo',
+        'estado',
+        'provincia',
+        'provincia_donde_opera',
+        'marca',
+        'modelo',
+        'a_o',
+        'tiempo_estimado_de_reparaci_n_d',
+        'EditDate',
+      ],
+      refreshMinutes: SURVEY_REFRESH,
+    },
+  },
+  {
+    id: 'shelters',
+    title: 'Alojamientos temporales',
+    component: 'preparacion',
+    attribution: 'SNGR',
+    source: {
+      kind: 'arcgis',
+      layerUrl: `${SNGR_AGOL}/Alojamientos_Temporales/FeatureServer/10`,
+      fields: ['NOMBRE_DEL_ALOJAMIENTO', 'MODALIDAD', 'CATEGORÍA', 'ESTADO', 'PROVINCIA', 'CANTON', 'PARROQUIA', 'SECTOR'],
+      refreshMinutes: STATIC_REFRESH,
+    },
+  },
+  {
+    id: 'mtop-camps',
+    title: 'Campamentos del MTOP',
+    component: 'preparacion',
+    attribution: 'MTOP',
+    source: {
+      kind: 'arcgis',
+      layerUrl: `${MTOP_AGOL}/survey123_2ffc3d517efa48679de2f5849b18a6d4/FeatureServer/0`,
+      fields: ['provincia', 'EditDate'],
+      refreshMinutes: SURVEY_REFRESH,
+    },
+  },
+  {
+    id: 'rve-preventive-works',
+    title: 'Acciones preventivas',
+    component: 'preparacion',
+    attribution: 'MTOP',
+    source: {
+      kind: 'arcgis',
+      layerUrl: `${SNGR_AGOL}/survey123_fc77ead53fa54d599f807ce51f415fbc/FeatureServer/0`,
+      fields: [
+        'descripci_n_de_la_acci_n_preven',
+        'provincia',
+        'cant_n',
+        'fecha_de_inicio',
+        'fecha_fin',
+        'maquinaria',
+        'instituciones_involucradas',
+      ],
+      refreshMinutes: SURVEY_REFRESH,
+    },
+  },
+  {
+    id: 'el-nino-road-projects',
+    title: 'Obras de mitigación ENOS',
+    component: 'preparacion',
+    attribution: 'MTOP',
+    source: {
+      kind: 'arcgis',
+      layerUrl: `${SNGR_AGOL}/Obras_Mitigaci%C3%B3n_ENOS/FeatureServer/9`,
+      fields: [
+        'Accion_Esp',
+        'Estado_actual',
+        'Porcentaje_avance',
+        'Presupuesto_tot',
+        'Fecha_inicio',
+        'Fecha_fin',
+        'Provincia',
+        'CODIGO_DE_VIA',
+      ],
+      maxAllowableOffset: 0.0005,
+      refreshMinutes: STATIC_REFRESH,
+    },
+  },
+  {
+    id: 'culverts-zone7',
+    title: 'Limpieza de alcantarillas · Zona 7',
+    component: 'preparacion',
+    attribution: 'MTOP Zona 7 (Loja) · microempresas',
+    source: { kind: 'file', file: 'alcantarillas-zona7.geojson' },
+  },
+
+  // ── Respuesta ────────────────────────────────────────────────────────────
+  {
+    id: 'road-adverse-events',
+    title: 'Eventos adversos en vías',
+    component: 'respuesta',
+    attribution: 'MTOP',
+    source: {
+      kind: 'arcgis',
+      layerUrl: `${MTOP_AGOL}/Eventos_Adversos/FeatureServer/0`,
+      // Sin el nombre de quien llenó la encuesta.
+      fields: [
+        'tipo_de_evento',
+        'fecha_en_que_ocurri_el_evento',
+        'provincia',
+        'nombre_del_tramo_o_sector',
+        'situaci_n_del_evento',
+        'circulaci_n',
+        'en_caso_de_requerirse_indique_l',
+        'observaciones',
+      ],
+      refreshMinutes: SURVEY_REFRESH,
+    },
+  },
+];

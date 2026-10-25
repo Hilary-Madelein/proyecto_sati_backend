@@ -5,6 +5,7 @@ import { AdminAuthModule } from './modules/admin-auth/admin-auth.module.js';
 import { AppConfigModule } from './config/config.module.js';
 import { EmailModule } from './integrations/email/email.module.js';
 import { GeoglowsModule } from './integrations/geoglows/geoglows.module.js';
+import { GoogleFloodHubModule } from './integrations/google-flood-hub/google-flood-hub.module.js';
 import { InamhiHydroviewerModule } from './integrations/inamhi-hydroviewer/inamhi-hydroviewer.module.js';
 import { InamhiStationsModule } from './integrations/inamhi-stations/inamhi-stations.module.js';
 import { InamhiWrfModule } from './integrations/inamhi-wrf/inamhi-wrf.module.js';
@@ -12,6 +13,7 @@ import { NoaaOisstModule } from './integrations/noaa-oisst/noaa-oisst.module.js'
 import { SatellitePrecipitationModule } from './integrations/satellite-precipitation/satellite-precipitation.module.js';
 import { SngrModule } from './integrations/sngr/sngr.module.js';
 import { EventsModule } from './modules/events/events.module.js';
+import { FloodHubModule } from './modules/flood-hub/flood-hub.module.js';
 import { HealthModule } from './modules/health/health.module.js';
 import { HydrologyModule } from './modules/hydrology/hydrology.module.js';
 import { IngestionModule } from './modules/ingestion/ingestion.module.js';
@@ -19,6 +21,7 @@ import { MapLayersModule } from './modules/map-layers/map-layers.module.js';
 import { NotificationsModule } from './modules/notifications/notifications.module.js';
 import { ObservedRainModule } from './modules/observed-rain/observed-rain.module.js';
 import { RainForecastModule } from './modules/rain-forecast/rain-forecast.module.js';
+import { RiskLayersModule } from './modules/risk-layers/risk-layers.module.js';
 import { SeaTemperatureModule } from './modules/sea-temperature/sea-temperature.module.js';
 import { WeatherStationsModule } from './modules/weather-stations/weather-stations.module.js';
 import { StorageModule } from './storage/storage.module.js';
@@ -37,10 +40,12 @@ import { StorageModule } from './storage/storage.module.js';
     IngestionModule,
     MapLayersModule,
     HydrologyModule,
+    FloodHubModule,
     RainForecastModule,
     ObservedRainModule,
     SeaTemperatureModule,
     WeatherStationsModule,
+    RiskLayersModule,
     NotificationsModule,
     AdminAuthModule,
     HealthModule,
@@ -53,6 +58,7 @@ import { StorageModule } from './storage/storage.module.js';
     GeoglowsModule,
     InamhiHydroviewerModule,
     InamhiStationsModule,
+    GoogleFloodHubModule,
     EmailModule,
   ],
 })

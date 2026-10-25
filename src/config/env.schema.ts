@@ -138,6 +138,16 @@ export const envSchema = z.object({
   /** API pública del INAMHI: estaciones con coordenadas y lluvia horaria de las últimas 12 h. */
   INAMHI_STATIONS_API_URL: z.url().default('https://apis.inamhi.gob.ec/api/v1'),
 
+  // ── Google Flood Hub ─────────────────────────────────────────────────────
+  /**
+   * Último estado de los puntos de pronóstico de Flood Hub en el Ecuador, en
+   * GeoJSON. Mientras no haya acceso directo a la API de Google, sale del demo
+   * de pronóstico GDE-Niño, que la consulta a diario.
+   */
+  FLOOD_HUB_GAUGES_URL: z
+    .url()
+    .default('https://gde-nino-demo-1028140394224.us-central1.run.app/data/floodhub_puntos.geojson'),
+
   // ── Temperatura del mar (NOAA OISST v2.1) ────────────────────────────────
   /** Carpetas mensuales de NCEI con un archivo NetCDF por día (fuente principal). */
   OISST_FILES_URL: z
