@@ -6,5 +6,7 @@ import { RainForecastService } from './rain-forecast.service.js';
 @Module({
   controllers: [RainForecastController],
   providers: [RainForecastService],
+  // Lo usa el análisis por cantón.
+  exports: [RainForecastService],
 })
 export class RainForecastModule {}

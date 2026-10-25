@@ -9,5 +9,7 @@ import { HydrologyService } from './hydrology.service.js';
 @Module({
   controllers: [HydrologyController],
   providers: [HydrologyService],
+  // Lo usa el análisis por cantón.
+  exports: [HydrologyService],
 })
 export class HydrologyModule {}

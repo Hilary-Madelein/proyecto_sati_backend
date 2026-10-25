@@ -118,6 +118,12 @@ export class RainForecastService {
     };
   }
 
+  /** Grilla de la lluvia del día N (sin la imagen), para cálculos por zona. */
+  async dailyGrid(day: ForecastDay): Promise<{ run: string; from: string; to: string; grid: RasterGrid }> {
+    const { meta, grid } = await this.render(day);
+    return { run: meta.run, from: meta.from, to: meta.to, grid };
+  }
+
   private async render(day: ForecastDay): Promise<Rendered> {
     const run = await this.latestRun();
     const time = run ? this.timeFor(run, day) : null;

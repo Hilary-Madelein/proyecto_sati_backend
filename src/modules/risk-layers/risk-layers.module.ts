@@ -6,5 +6,7 @@ import { RiskLayersService } from './risk-layers.service.js';
 @Module({
   controllers: [RiskLayersController],
   providers: [RiskLayersService],
+  // Lo usa el análisis por cantón.
+  exports: [RiskLayersService],
 })
 export class RiskLayersModule {}

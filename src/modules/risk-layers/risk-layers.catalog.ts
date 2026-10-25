@@ -354,4 +354,25 @@ export const RISK_LAYERS: readonly RiskLayerDefinition[] = [
       refreshMinutes: SURVEY_REFRESH,
     },
   },
+  {
+    id: 'rve-recovery',
+    title: 'Trabajos para recuperar la transitabilidad',
+    component: 'respuesta',
+    attribution: 'MTOP',
+    source: {
+      kind: 'arcgis',
+      // Vista de resultados de la encuesta (el servicio "…_form" solo recibe formularios).
+      layerUrl: `${SNGR_AGOL}/survey123_df2c995a25e44ebba6d78bd14e86cc64_results/FeatureServer/0`,
+      fields: [
+        'descripci_n_de_trabaj',
+        'provincia',
+        'cant_n',
+        'fecha_de_inicio',
+        'fecha_fin',
+        'maquinaria',
+        'instituciones_involucradas',
+      ],
+      refreshMinutes: SURVEY_REFRESH,
+    },
+  },
 ];
