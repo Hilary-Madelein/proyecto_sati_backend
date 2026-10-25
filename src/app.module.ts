@@ -12,6 +12,7 @@ import { InamhiWrfModule } from './integrations/inamhi-wrf/inamhi-wrf.module.js'
 import { NoaaOisstModule } from './integrations/noaa-oisst/noaa-oisst.module.js';
 import { SatellitePrecipitationModule } from './integrations/satellite-precipitation/satellite-precipitation.module.js';
 import { SngrModule } from './integrations/sngr/sngr.module.js';
+import { CantonAnalysisModule } from './modules/canton-analysis/canton-analysis.module.js';
 import { EventsModule } from './modules/events/events.module.js';
 import { FloodHubModule } from './modules/flood-hub/flood-hub.module.js';
 import { HealthModule } from './modules/health/health.module.js';
@@ -46,6 +47,7 @@ import { StorageModule } from './storage/storage.module.js';
     SeaTemperatureModule,
     WeatherStationsModule,
     RiskLayersModule,
+    CantonAnalysisModule,
     NotificationsModule,
     AdminAuthModule,
     HealthModule,

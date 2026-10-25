@@ -1,6 +1,6 @@
 import { NotFoundException } from '@nestjs/common';
 import type { RasterGrid } from '../../common/raster/raster-grid.js';
-import { RainForecastSource, type ForecastRun } from './rain-forecast-source.js';
+import { RainForecastSource, nextStepEnds, type ForecastRun } from './rain-forecast-source.js';
 import { RainForecastService } from './rain-forecast.service.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -36,6 +36,10 @@ class FakeSource extends RainForecastSource {
   async getColorStops() {
     return [{ value: 1, color: '#0000ff', opacity: 1 }];
   }
+
+  async getNextHoursGrid() {
+    return null;
+  }
 }
 
 describe('RainForecastService', () => {
@@ -65,5 +69,25 @@ describe('RainForecastService', () => {
 
   it('responde 404 si la corrida no llega a ese día', async () => {
     await expect(build().service.daily(3)).rejects.toBeInstanceOf(NotFoundException);
+  });
+});
+
+describe('nextStepEnds', () => {
+  // Pasos de 3 h etiquetados por su fin: 01Z, 04Z, 07Z… del 25/10.
+  const steps = Array.from({ length: 10 }, (_, index) => new Date(Date.UTC(2026, 9, 25, 1 + 3 * index)).toISOString());
+
+  it('toma desde el último fin de paso que ya pasó hasta 12 h después', () => {
+    const now = Date.UTC(2026, 9, 25, 8, 30);
+    expect(nextStepEnds(steps, 12, now)).toEqual([
+      '2026-10-25T10:00:00.000Z',
+      '2026-10-25T13:00:00.000Z',
+      '2026-10-25T16:00:00.000Z',
+      '2026-10-25T19:00:00.000Z',
+    ]);
+  });
+
+  it('null si la corrida no llega a cubrir la ventana', () => {
+    expect(nextStepEnds(steps, 12, Date.UTC(2026, 9, 26, 0))).toBeNull();
+    expect(nextStepEnds([], 12, Date.UTC(2026, 9, 25, 8))).toBeNull();
   });
 });

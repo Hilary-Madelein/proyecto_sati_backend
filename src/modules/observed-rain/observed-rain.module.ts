@@ -6,5 +6,7 @@ import { ObservedRainService } from './observed-rain.service.js';
 @Module({
   controllers: [ObservedRainController],
   providers: [ObservedRainService],
+  // Lo usa el análisis por cantón.
+  exports: [ObservedRainService],
 })
 export class ObservedRainModule {}

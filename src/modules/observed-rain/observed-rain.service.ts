@@ -79,6 +79,17 @@ interface Rendered {
   grid: RasterGrid;
 }
 
+/** Lluvia de una ventana reciente en grilla, sin pintar (para cálculos por zona). */
+export interface ObservedRainGrid {
+  product: string;
+  productName: string;
+  hours: number;
+  from: string;
+  to: string;
+  missingHours: number;
+  grid: RasterGrid;
+}
+
 export interface HourlyWindow {
   times: string[];
   from: string;
@@ -119,6 +130,7 @@ export function selectHourlyWindow(times: readonly string[], hours: number): Hou
 @Injectable()
 export class ObservedRainService {
   private readonly renderCache = new TtlCache<Rendered>(2 * HOUR_MS, 12);
+  private readonly gridCache = new TtlCache<RasterGrid>(2 * HOUR_MS, 6);
 
   constructor(private readonly source: ObservedRainSource) {}
 
@@ -145,6 +157,31 @@ export class ObservedRainService {
       to: meta.to,
       mm: value === null ? null : Math.round(value * 10) / 10,
     };
+  }
+
+  /**
+   * Lluvia de las últimas `hours` horas (cualquier número, p. ej. 12) del primer
+   * producto con datos recientes, en el orden de preferencia de la fuente. Solo
+   * la grilla, sin imagen: la usa el análisis por cantón. Null si ninguno alcanza.
+   */
+  async recentGrid(hours: number): Promise<ObservedRainGrid | null> {
+    for (const product of this.source.products) {
+      const times = await this.source.getHourlyTimes(product.key).catch(() => [] as string[]);
+      const latest = times.at(-1);
+      if (!latest || Date.parse(latest) < Date.now() - STALE_AFTER_MS) continue;
+      const window = selectHourlyWindow(times, hours);
+      if (!window) continue;
+      const grid = await this.upstream(
+        this.gridCache.get(`${product.key}:${hours}:${window.to}`, async () =>
+          sumGrids(
+            await mapWithConcurrency(window.times, DOWNLOAD_CONCURRENCY, (time) => this.source.getHourlyGrid(product.key, time)),
+          ),
+        ),
+      );
+      const { from, to, missingHours } = window;
+      return { product: product.key, productName: product.name, hours, from, to, missingHours, grid };
+    }
+    return null;
   }
 
   private async status(product: ObservedRainProduct): Promise<ObservedProductStatus> {
