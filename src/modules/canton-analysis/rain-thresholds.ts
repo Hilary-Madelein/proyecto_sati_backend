@@ -3,7 +3,7 @@ export type Semaphore = 'green' | 'yellow' | 'red';
 
 export type RainCategory = 'minima' | 'ligera' | 'moderada' | 'fuerte' | 'intensa' | 'torrencial' | 'extrema';
 
-interface Band {
+export interface Band {
   category: RainCategory;
   label: string;
   /** Lluvia de 12 h desde la que empieza la categoría (mm). */

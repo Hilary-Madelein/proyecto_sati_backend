@@ -20,10 +20,12 @@ import {
 } from './canton-geometry.js';
 import { preparednessIndex, type PreparednessIndicator, type ProvincePreparedness } from './preparedness.js';
 import {
+  RAIN_BANDS,
   SEMAPHORE_RANK,
   classifyRain,
   classifyRain12h,
   classifyRain24h,
+  type Band,
   type RainCategory,
   type RainWindow,
   type Semaphore,
@@ -132,6 +134,8 @@ export interface CantonAnalysisSnapshot {
   counts: Record<Semaphore, number> & { noData: number };
   /** Todos los cantones, del más al menos afectado. */
   cantons: CantonAnalysis[];
+  /** Tabla del documento (categorías, umbrales, nivel, consecuencias y acciones), para la leyenda. */
+  bands: readonly Band[];
   /** Índice de preparación de las 24 provincias (ISPP-FEN, ver preparedness.ts), de la más a la menos preparada. */
   provinces: ProvincePreparedness[];
   sources: SourceStatus[];
@@ -439,6 +443,7 @@ export class CantonAnalysisService implements OnApplicationBootstrap, OnModuleDe
         noData: cantons.filter((canton) => canton.decidedBy === null).length,
       },
       cantons,
+      bands: RAIN_BANDS,
       provinces: preparednessIndex([...provinceTotals.values()]),
       sources,
     };
