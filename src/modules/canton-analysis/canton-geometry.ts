@@ -7,6 +7,8 @@ export interface CantonShape {
   code: string;
   name: string;
   province: string;
+  /** Región del INEC (Costa, Sierra, Amazonía, Región Insular); null si no viene. */
+  region: string | null;
   population: number | null;
   rings: Ring[];
   /** [oeste, sur, este, norte]. */

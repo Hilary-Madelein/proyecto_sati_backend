@@ -1,6 +1,6 @@
 import type { RasterGrid } from '../../common/raster/raster-grid.js';
 import { CantonLocator, bboxOf, distanceKm, ringsOf, segmentsOf, zonalP90, type CantonShape } from './canton-geometry.js';
-import { classifyRain12h } from './rain-thresholds.js';
+import { classifyRain, classifyRain12h, classifyRain24h } from './rain-thresholds.js';
 
 describe('classifyRain12h', () => {
   it('usa los umbrales de 12 h del documento con tres colores (el naranja pasa a rojo)', () => {
@@ -19,6 +19,36 @@ describe('classifyRain12h', () => {
   });
 });
 
+describe('classifyRain24h', () => {
+  it('usa los umbrales de 24 h del documento', () => {
+    expect([9.9, 10, 49.9, 50, 100, 250].map((mm) => classifyRain24h(mm).semaphore)).toEqual(['green', 'yellow', 'yellow', 'red', 'red', 'red']);
+    expect([5, 10, 25, 50, 100, 250].map((mm) => classifyRain24h(mm).label)).toEqual([
+      'Ligera',
+      'Moderada',
+      'Fuerte',
+      'Intensa',
+      'Torrencial',
+      'Extrema',
+    ]);
+  });
+});
+
+describe('classifyRain: S = máx(S12h, S24h)', () => {
+  it('manda la categoría más alta de las dos ventanas', () => {
+    // 4 mm en 12 h es verde, pero 45 mm en 24 h es amarillo (fuerte): lluvia larga y moderada.
+    expect(classifyRain(4, 45)).toMatchObject({ decidedBy: '24h', band: { semaphore: 'yellow', label: 'Fuerte' } });
+    // 32 mm en 12 h ya es rojo aunque las 24 h (40 mm) solo den amarillo: aguacero corto.
+    expect(classifyRain(32, 40)).toMatchObject({ decidedBy: '12h', band: { semaphore: 'red', label: 'Intensa' } });
+    // Con la misma categoría decide la de 12 h.
+    expect(classifyRain(6, 12)?.decidedBy).toBe('12h');
+  });
+
+  it('sin ningún dato no clasifica (no es verde)', () => {
+    expect(classifyRain(null, null)).toBeNull();
+    expect(classifyRain(null, 12)?.band.semaphore).toBe('yellow');
+  });
+});
+
 /** Cuadrado de 1° x 1° con esquina en (lng, lat). */
 const square = (code: string, lng: number, lat: number): CantonShape => {
   const rings = ringsOf({
@@ -33,7 +63,7 @@ const square = (code: string, lng: number, lat: number): CantonShape => {
       ],
     ],
   });
-  return { code, name: code, province: 'P', population: null, rings, bbox: bboxOf(rings) };
+  return { code, name: code, province: 'P', region: null, population: null, rings, bbox: bboxOf(rings) };
 };
 
 describe('CantonLocator', () => {

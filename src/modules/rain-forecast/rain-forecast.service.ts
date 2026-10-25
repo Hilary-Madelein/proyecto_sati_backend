@@ -6,7 +6,7 @@ import { UpstreamError } from '../../common/http/upstream.error.js';
 import { createColorRamp } from '../../common/raster/color-ramp.js';
 import { gridMax, valueAt, type RasterGrid } from '../../common/raster/raster-grid.js';
 import { renderGridPng } from '../../common/raster/render-png.js';
-import { RainForecastSource, type ForecastRun } from './rain-forecast-source.js';
+import { RainForecastSource, type ForecastRun, type WindowRainGrid } from './rain-forecast-source.js';
 
 /** Días de pronóstico ofrecidos: 1 = las primeras 24 h de la corrida, 2 = las siguientes… */
 export const FORECAST_DAYS = [1, 2, 3] as const;
@@ -76,6 +76,7 @@ interface Rendered {
 export class RainForecastService {
   private readonly runCache = new TtlCache<ForecastRun | null>(10 * MINUTE_MS, 1);
   private readonly renderCache = new TtlCache<Rendered>(6 * HOUR_MS, 12);
+  private readonly windowCache = new TtlCache<WindowRainGrid | null>(30 * MINUTE_MS, 4);
 
   constructor(private readonly source: RainForecastSource) {}
 
@@ -122,6 +123,11 @@ export class RainForecastService {
   async dailyGrid(day: ForecastDay): Promise<{ run: string; from: string; to: string; grid: RasterGrid }> {
     const { meta, grid } = await this.render(day);
     return { run: meta.run, from: meta.from, to: meta.to, grid };
+  }
+
+  /** Lluvia pronosticada de las próximas `hours` horas en grilla, para cálculos por zona; null si la corrida no llega. */
+  nextHoursGrid(hours: number): Promise<WindowRainGrid | null> {
+    return this.upstream(this.windowCache.get(String(hours), () => this.source.getNextHoursGrid(hours, Date.now())));
   }
 
   private async render(day: ForecastDay): Promise<Rendered> {

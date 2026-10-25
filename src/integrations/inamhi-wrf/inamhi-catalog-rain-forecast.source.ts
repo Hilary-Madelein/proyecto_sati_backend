@@ -8,7 +8,12 @@ import { readGeoTiffGrid } from '../../common/raster/geotiff.js';
 import { sumGrids, type RasterGrid } from '../../common/raster/raster-grid.js';
 import { parseWmsLayerDimensions } from '../../common/wms/wms-capabilities.js';
 import { AppConfigService } from '../../config/app-config.service.js';
-import { RainForecastSource, type ForecastRun } from '../../modules/rain-forecast/rain-forecast-source.js';
+import {
+  RainForecastSource,
+  nextStepEnds,
+  type ForecastRun,
+  type WindowRainGrid,
+} from '../../modules/rain-forecast/rain-forecast-source.js';
 
 const SERVICE = 'WRF INAMHI (geoservicios)';
 const LAYER = 'wrf_tiempo_precipitacion';
@@ -85,19 +90,39 @@ export class InamhiCatalogRainForecastSource extends RainForecastSource {
   readonly attribution = 'Lluvia pronosticada: INAMHI · modelo WRF';
   // Un paso de 3 h no cambia mientras siga la misma corrida.
   private readonly stepCache = new TtlCache<RasterGrid>(3 * HOUR_MS, 30);
+  private readonly timesCache = new TtlCache<string[]>(HOUR_MS / 2, 1);
 
   constructor(private readonly config: AppConfigService) {
     super();
   }
 
   async getLatestRun(): Promise<ForecastRun | null> {
+    const times = await this.stepTimes();
+    return times.length ? runFromSteps(times) : null;
+  }
+
+  /** Aquí la lluvia diaria es la suma de sus 8 pasos: la ventana usa la misma escala, sin ajuste. */
+  async getNextHoursGrid(hours: number, now: number): Promise<WindowRainGrid | null> {
+    const times = await this.timesCache.get('steps', () => this.stepTimes());
+    const run = runFromSteps(times);
+    const ends = run && nextStepEnds(times, hours, now);
+    if (!run || !ends) return null;
+    const grids = await mapWithConcurrency(ends, 4, (end) => this.stepGrid(end));
+    return {
+      run: run.run,
+      from: new Date(Date.parse(ends[0]) - STEP_MS).toISOString(),
+      to: ends[ends.length - 1],
+      grid: sumGrids(grids),
+    };
+  }
+
+  private async stepTimes(): Promise<string[]> {
     const url = new URL(this.config.get('INAMHI_WRF_WMS_URL'));
     url.searchParams.set('service', 'WMS');
     url.searchParams.set('version', '1.3.0');
     url.searchParams.set('request', 'GetCapabilities');
     const xml = await (await fetchWithRetry(url, { service: SERVICE, timeoutMs: 60_000 })).text();
-    const dimensions = parseWmsLayerDimensions(xml, LAYER);
-    return dimensions ? runFromSteps(dimensions.times) : null;
+    return parseWmsLayerDimensions(xml, LAYER)?.times ?? [];
   }
 
   async getDailyGrid(_run: string, time: string): Promise<RasterGrid> {

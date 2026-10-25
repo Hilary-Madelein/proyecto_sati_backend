@@ -1,16 +1,13 @@
 import { BadGatewayException, Injectable, Logger, type OnApplicationBootstrap, type OnModuleDestroy } from '@nestjs/common';
 import { TtlCache } from '../../common/cache/ttl-cache.js';
-import { valueAt } from '../../common/raster/raster-grid.js';
 import { UpstreamError } from '../../common/http/upstream.error.js';
 import { toTitleCase } from '../../common/text/title-case.js';
 import { fetchArcgisLayer, type GeoJsonFeature } from '../../integrations/arcgis/arcgis-feature-layer.js';
 import { EventsService } from '../events/events.service.js';
 import { FloodHubService } from '../flood-hub/flood-hub.service.js';
 import { HydrologyService } from '../hydrology/hydrology.service.js';
-import { ObservedRainService } from '../observed-rain/observed-rain.service.js';
 import { RainForecastService } from '../rain-forecast/rain-forecast.service.js';
 import { RiskLayersService } from '../risk-layers/risk-layers.service.js';
-import { WeatherStationsService } from '../weather-stations/weather-stations.service.js';
 import {
   CantonLocator,
   anchorOf,
@@ -21,7 +18,15 @@ import {
   zonalP90,
   type CantonShape,
 } from './canton-geometry.js';
-import { SEMAPHORE_RANK, classifyRain12h, type RainCategory, type Semaphore } from './rain-thresholds.js';
+import {
+  SEMAPHORE_RANK,
+  classifyRain,
+  classifyRain12h,
+  classifyRain24h,
+  type RainCategory,
+  type RainWindow,
+  type Semaphore,
+} from './rain-thresholds.js';
 
 const MINUTE_MS = 60 * 1000;
 const HOUR_MS = 60 * MINUTE_MS;
@@ -29,14 +34,9 @@ const HOUR_MS = 60 * MINUTE_MS;
 const REFRESH_MS = HOUR_MS;
 /** Primer cálculo poco después de arrancar, para que la primera consulta no lo espere. */
 const FIRST_RUN_DELAY_MS = MINUTE_MS;
-/** Ventana de lluvia del semáforo (documento "Lluvia de 12 horas"). */
-const RAIN_WINDOW_HOURS = 12;
-/** Una estación cuenta para el semáforo si informó al menos 9 de las 12 horas (si no, su suma se queda corta). */
-const MIN_STATION_HOURS = 9;
-/** Estaciones con lluvia (en la estación o en el satélite) necesarias para ajustar el satélite. */
-const MIN_CORRECTION_PAIRS = 10;
-/** Límites del factor de ajuste del satélite, por si un día raro lo dispara. */
-const CORRECTION_RANGE = [0.1, 1.5] as const;
+/** Ventanas del semáforo, contadas desde ahora (pasos de 3 h del WRF): manda la más alta de las dos. */
+const FORECAST_SHORT_HOURS = 12;
+const FORECAST_LONG_HOURS = 24;
 /** Eventos de la SNGR recientes que cuentan como detonante. */
 const RECENT_EVENTS_MS = 72 * HOUR_MS;
 /** Días del pronóstico de caudales que se miran (hoy y mañana). */
@@ -46,20 +46,12 @@ const RIVER_ALERT_DAYS = 2;
 const CANTONS_LAYER_URL =
   'https://services7.arcgis.com/iFGeGXTAJXnjq0YN/arcgis/rest/services/Cantones_del_Ecuador/FeatureServer/0';
 
-export type RainBasis = 'station' | 'satellite' | 'none';
-
-export interface StationReading {
-  code: string;
-  name: string;
-  mm: number;
-  hoursWithData: number;
-  lastTime: string | null;
-}
-
 export interface CantonAnalysis {
   code: string;
   name: string;
   province: string;
+  /** Región del INEC (Costa, Sierra, Amazonía, Región Insular). */
+  region: string | null;
   /** Centro del recuadro del cantón [lat, lng], para centrar el mapa. */
   center: [number, number];
   semaphore: Semaphore;
@@ -67,18 +59,19 @@ export interface CantonAnalysis {
   categoryLabel: string;
   consequences: string;
   actions: string;
-  /** Lluvia de 12 h que decide el semáforo (mm), o null si no hay dato. */
-  rain12hMm: number | null;
-  /** De dónde sale: pluviómetro del INAMHI o satélite (ajustado con las estaciones). */
-  basis: RainBasis;
+  /**
+   * Lluvia pronosticada por el WRF en el cantón (percentil 90 de sus celdas): próximas 12 y 24 h, desde ahora,
+   * y la categoría de cada ventana con sus umbrales (el cantón toma la más alta de las dos).
+   */
+  forecast: {
+    mm12h: number | null;
+    mm24h: number | null;
+    category12h: RainCategory | null;
+    category24h: RainCategory | null;
+  };
+  /** Ventana que decidió el color (S = máx(S12h, S24h)); null si no hay pronóstico. */
+  decidedBy: RainWindow | null;
   triggers: {
-    stations: StationReading[];
-    /** Satélite en el cantón (percentil 90 de las celdas), sin ajustar, aunque haya estación. */
-    satellite12hMm: number | null;
-    /** Lo mismo multiplicado por el factor de ajuste con las estaciones (ver `satellite.correction`). */
-    satellite12hAdjustedMm: number | null;
-    /** Pronóstico WRF de las próximas 24 h en el cantón (percentil 90). */
-    forecast24hMm: number | null;
     /** Tramos de río con alerta hoy o mañana (sin los que el modelo sobrestima siempre). */
     riverAlerts: number;
     /** Mayor periodo de retorno superado en esos tramos (años), 0 si ninguno. */
@@ -118,8 +111,6 @@ export interface CantonAnalysis {
     /** Trabajos para recuperar la transitabilidad registrados. */
     recoveryWorks: number;
   };
-  /** Contorno simplificado (solo para los cantones en amarillo o rojo), para resaltarlo en el mapa. */
-  geometry: { type: 'Polygon' | 'MultiPolygon'; coordinates: unknown } | null;
 }
 
 export interface SourceStatus {
@@ -130,14 +121,12 @@ export interface SourceStatus {
 
 export interface CantonAnalysisSnapshot {
   updatedAt: string;
-  windowHours: number;
-  /**
-   * Ventana del satélite usada y su ajuste: factor = lluvia de las estaciones /
-   * lluvia del satélite en esos mismos puntos y horas (null si hay pocas estaciones con lluvia).
-   */
-  satellite: { product: string; from: string; to: string; correction: { factor: number; pairs: number } | null } | null;
   forecastRun: string | null;
-  counts: Record<Semaphore, number> & { stationCantons: number };
+  /** Ventanas del pronóstico usadas (null si la corrida no las tenía). */
+  forecast12h: { from: string; to: string } | null;
+  forecast24h: { from: string; to: string } | null;
+  /** Cantones por color; los sin pronóstico van aparte (`noData`), no como verdes. */
+  counts: Record<Semaphore, number> & { noData: number };
   /** Todos los cantones, del más al menos afectado. */
   cantons: CantonAnalysis[];
   sources: SourceStatus[];
@@ -146,27 +135,28 @@ export interface CantonAnalysisSnapshot {
 type Counter = Map<string, number>;
 
 /**
- * Análisis por cantón con la lluvia de 12 h: semáforo verde, amarillo o rojo
- * con los umbrales del documento de la SNGR, y por cantón sus factores
+ * Análisis por cantón con la lluvia PRONOSTICADA (WRF) de las próximas 12 y 24 h:
+ * semáforo verde, amarillo o rojo con los umbrales del documento de la SNGR
+ * (manda el más alto de los dos: S = máx(S12h, S24h)), y por cantón sus factores
  * detonantes, elementos expuestos, acciones preventivas y herramientas para la
- * respuesta. Lo más creíble manda: si el cantón tiene un pluviómetro del INAMHI
- * con datos, su lluvia medida; si no, la del satélite de las mismas 12 h.
+ * respuesta. Es un sistema de pronóstico: la lluvia ya medida no entra.
+ *
+ * Nota: con los umbrales del documento el WRF pinta más cantones de los que
+ * después llueven (calibración del 25/10/2026 con el archivo de lluvia: 60 % en
+ * amarillo o más y 13 % en rojo, frente a 29 % y 5 % medidos; y la lluvia
+ * fuerte acierta poco). Se usan igual porque son los de la metodología.
  */
 @Injectable()
 export class CantonAnalysisService implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly logger = new Logger(CantonAnalysisService.name);
-  private readonly cantonsCache = new TtlCache<{ shapes: CantonShape[]; geometries: Map<string, GeoJsonFeature['geometry']> }>(
-    24 * HOUR_MS,
-    1,
-  );
+  // Los contornos no viajan en la respuesta: el visor tiene los suyos (archivo fijo) y los une por el código DPA.
+  private readonly cantonsCache = new TtlCache<CantonShape[]>(24 * HOUR_MS, 1);
   private latest: CantonAnalysisSnapshot | null = null;
   private loading: Promise<CantonAnalysisSnapshot> | null = null;
   private refreshTimer?: NodeJS.Timeout;
   private firstRunTimer?: NodeJS.Timeout;
 
   constructor(
-    private readonly stations: WeatherStationsService,
-    private readonly observedRain: ObservedRainService,
     private readonly rainForecast: RainForecastService,
     private readonly hydrology: HydrologyService,
     private readonly floodHub: FloodHubService,
@@ -211,7 +201,7 @@ export class CantonAnalysisService implements OnApplicationBootstrap, OnModuleDe
 
   private async compute(): Promise<CantonAnalysisSnapshot> {
     const started = Date.now();
-    const { shapes, geometries } = await this.cantonsCache.get('all', () => this.loadCantons());
+    const shapes = await this.cantonsCache.get('all', () => this.loadCantons());
     const locator = new CantonLocator(shapes);
     const sources: SourceStatus[] = [];
     /** Corre una fuente; si falla, el análisis sigue sin ella y queda anotado. */
@@ -226,18 +216,21 @@ export class CantonAnalysisService implements OnApplicationBootstrap, OnModuleDe
       }
     };
 
-    const [stations, satellite, forecast, rivers, floodHub, events, layers] = await Promise.all([
-      attempt('Estaciones del INAMHI', () => this.stations.snapshot(), (value) => `${value.stations.length} estaciones`),
+    /** Lluvia pronosticada de las próximas `hours` horas (pasos de 3 h del WRF). */
+    const forecastWindow = (hours: number) =>
       attempt(
-        'Satélite (12 h)',
+        `Pronóstico WRF (${hours} h)`,
         async () => {
-          const grid = await this.observedRain.recentGrid(RAIN_WINDOW_HOURS);
-          if (!grid) throw new Error('ningún producto tiene 12 h recientes');
+          const grid = await this.rainForecast.nextHoursGrid(hours);
+          if (!grid) throw new Error(`la corrida no tiene las próximas ${hours} h`);
           return grid;
         },
-        (value) => value.productName,
-      ),
-      attempt('Pronóstico WRF (24 h)', () => this.rainForecast.dailyGrid(1), (value) => `corrida ${value.run}`),
+        (value) => `${value.from} a ${value.to}`,
+      );
+
+    const [forecast, forecast12h, rivers, floodHub, events, layers] = await Promise.all([
+      forecastWindow(FORECAST_LONG_HOURS),
+      forecastWindow(FORECAST_SHORT_HOURS),
       attempt('Alertas por caudal', () => this.hydrology.getAlerts(), (value) => `${value.alerts.length} tramos`),
       attempt('Google Flood Hub', () => this.floodHub.snapshot(), (value) => `${value.flaggedCount} con aviso`),
       attempt(
@@ -248,35 +241,6 @@ export class CantonAnalysisService implements OnApplicationBootstrap, OnModuleDe
       ),
       this.loadRiskLayers(sources),
     ]);
-
-    // Estaciones con suficientes horas, por cantón.
-    const stationsByCanton = new Map<string, StationReading[]>();
-    for (const station of stations?.stations ?? []) {
-      if (station.totalMm === null || station.hoursWithData < MIN_STATION_HOURS) continue;
-      const canton = locator.locate(station.lng, station.lat);
-      if (!canton) continue;
-      const list = stationsByCanton.get(canton.code) ?? [];
-      list.push({ code: station.code, name: station.name, mm: station.totalMm, hoursWithData: station.hoursWithData, lastTime: station.lastTime });
-      stationsByCanton.set(canton.code, list);
-    }
-
-    // El satélite (PERSIANN, por infrarrojo) exagera los aguaceros: el 25/10/2026 marcó más que el
-    // pluviómetro en 45 de 48 estaciones con lluvia (Huaquillas: 61 mm frente a 0,1). Se ajusta con
-    // las estaciones de la misma ventana: suma de lo medido / suma del satélite en esos puntos.
-    let correction: { factor: number; pairs: number } | null = null;
-    if (satellite) {
-      const pairs = (stations?.stations ?? []).flatMap((station) => {
-        if (station.totalMm === null || station.hoursWithData < MIN_STATION_HOURS) return [];
-        const estimated = valueAt(satellite.grid, station.lat, station.lng);
-        return estimated !== null && (estimated >= 1 || station.totalMm >= 1) ? [[station.totalMm, estimated]] : [];
-      });
-      const estimatedTotal = pairs.reduce((sum, [, estimated]) => sum + estimated, 0);
-      if (pairs.length >= MIN_CORRECTION_PAIRS && estimatedTotal > 0) {
-        const raw = pairs.reduce((sum, [measured]) => sum + measured, 0) / estimatedTotal;
-        const factor = Math.min(CORRECTION_RANGE[1], Math.max(CORRECTION_RANGE[0], raw));
-        correction = { factor: Math.round(factor * 100) / 100, pairs: pairs.length };
-      }
-    }
 
     const countPoints = (features: readonly GeoJsonFeature[] | undefined, include: (feature: GeoJsonFeature) => boolean = () => true) => {
       const counter: Counter = new Map();
@@ -363,32 +327,31 @@ export class CantonAnalysisService implements OnApplicationBootstrap, OnModuleDe
     const round1 = (value: number | null) => (value === null ? null : Math.round(value * 10) / 10);
 
     const cantons: CantonAnalysis[] = shapes.map((canton) => {
-      const readings = (stationsByCanton.get(canton.code) ?? []).sort((a, b) => b.mm - a.mm);
-      const satellite12h = satellite ? round1(zonalP90(satellite.grid, canton)) : null;
-      const satelliteAdjusted = satellite12h === null ? null : round1(satellite12h * (correction?.factor ?? 1));
       const forecast24h = forecast ? round1(zonalP90(forecast.grid, canton)) : null;
-      const basis: RainBasis = readings.length ? 'station' : satelliteAdjusted !== null ? 'satellite' : 'none';
-      const rain = readings.length ? readings[0].mm : satelliteAdjusted;
-      const band = classifyRain12h(rain ?? 0);
+      const forecast12hMm = forecast12h ? round1(zonalP90(forecast12h.grid, canton)) : null;
+      const classified = classifyRain(forecast12hMm, forecast24h);
+      const band = classified?.band ?? classifyRain12h(0);
       const [west, south, east, north] = canton.bbox;
       const river = riverAlerts.get(canton.code);
       return {
         code: canton.code,
         name: canton.name,
         province: canton.province,
+        region: canton.region,
         center: [(south + north) / 2, (west + east) / 2],
         semaphore: band.semaphore,
         category: band.category,
         categoryLabel: band.label,
         consequences: band.consequences,
         actions: band.actions,
-        rain12hMm: rain,
-        basis,
+        forecast: {
+          mm12h: forecast12hMm,
+          mm24h: forecast24h,
+          category12h: forecast12hMm === null ? null : classifyRain12h(forecast12hMm).category,
+          category24h: forecast24h === null ? null : classifyRain24h(forecast24h).category,
+        },
+        decidedBy: classified?.decidedBy ?? null,
         triggers: {
-          stations: readings,
-          satellite12hMm: satellite12h,
-          satellite12hAdjustedMm: satelliteAdjusted,
-          forecast24hMm: forecast24h,
           riverAlerts: river?.count ?? 0,
           riverMaxLevel: river?.max ?? 0,
           floodHubFlagged: get(floodHubFlagged, canton.code),
@@ -422,32 +385,30 @@ export class CantonAnalysisService implements OnApplicationBootstrap, OnModuleDe
           roadEventsOpen: get(counts.roadEventsOpen, canton.code),
           recoveryWorks: get(counts.recoveryWorks, canton.code),
         },
-        geometry: band.semaphore === 'green' ? null : (geometries.get(canton.code) as CantonAnalysis['geometry']),
       };
     });
 
-    // Del más al menos afectado: semáforo; dentro de cada color, primero lo medido por estaciones
-    // (lo más creíble), luego la lluvia y los ríos en alerta.
-    const basisRank: Record<RainBasis, number> = { station: 2, satellite: 1, none: 0 };
+    // Del más al menos afectado: semáforo; dentro de cada color, la lluvia que decidió el color y los ríos en alerta.
+    const decisive = (canton: CantonAnalysis) =>
+      (canton.decidedBy === '24h' ? canton.forecast.mm24h : canton.forecast.mm12h) ?? -1;
     cantons.sort(
       (a, b) =>
         SEMAPHORE_RANK[b.semaphore] - SEMAPHORE_RANK[a.semaphore] ||
-        basisRank[b.basis] - basisRank[a.basis] ||
-        (b.rain12hMm ?? -1) - (a.rain12hMm ?? -1) ||
+        decisive(b) - decisive(a) ||
         b.triggers.riverAlerts - a.triggers.riverAlerts,
     );
 
     this.logger.log(`Análisis por cantón listo en ${((Date.now() - started) / 1000).toFixed(1)} s`);
     return {
       updatedAt: new Date().toISOString(),
-      windowHours: RAIN_WINDOW_HOURS,
-      satellite: satellite ? { product: satellite.productName, from: satellite.from, to: satellite.to, correction } : null,
       forecastRun: forecast?.run ?? null,
+      forecast12h: forecast12h ? { from: forecast12h.from, to: forecast12h.to } : null,
+      forecast24h: forecast ? { from: forecast.from, to: forecast.to } : null,
       counts: {
         red: cantons.filter((canton) => canton.semaphore === 'red').length,
         yellow: cantons.filter((canton) => canton.semaphore === 'yellow').length,
-        green: cantons.filter((canton) => canton.semaphore === 'green').length,
-        stationCantons: stationsByCanton.size,
+        green: cantons.filter((canton) => canton.semaphore === 'green' && canton.decidedBy !== null).length,
+        noData: cantons.filter((canton) => canton.decidedBy === null).length,
       },
       cantons,
       sources,
@@ -456,21 +417,20 @@ export class CantonAnalysisService implements OnApplicationBootstrap, OnModuleDe
 
   private async loadCantons() {
     const { features } = await fetchArcgisLayer(CANTONS_LAYER_URL, {
-      fields: ['DPA_CANTON', 'DPA_DESCAN', 'DPA_DESPRO', 'TOTPOP'],
+      fields: ['DPA_CANTON', 'DPA_DESCAN', 'DPA_DESPRO', 'REN_REGION', 'TOTPOP'],
       maxAllowableOffset: 0.001,
     });
-    const geometries = new Map<string, GeoJsonFeature['geometry']>();
     const shapes = features.flatMap((feature): CantonShape[] => {
       const rings = ringsOf(feature.geometry);
       const code = String(feature.properties.DPA_CANTON ?? '').trim();
       if (!rings.length || !code) return [];
-      geometries.set(code, feature.geometry);
       const population = Number(feature.properties.TOTPOP);
       return [
         {
           code,
           name: toTitleCase(feature.properties.DPA_DESCAN),
           province: toTitleCase(feature.properties.DPA_DESPRO),
+          region: feature.properties.REN_REGION ? toTitleCase(feature.properties.REN_REGION) : null,
           population: Number.isFinite(population) && population > 0 ? population : null,
           rings,
           bbox: bboxOf(rings),
@@ -478,7 +438,7 @@ export class CantonAnalysisService implements OnApplicationBootstrap, OnModuleDe
       ];
     });
     if (shapes.length === 0) throw new UpstreamError('ArcGIS', 'la capa de cantones llegó vacía');
-    return { shapes, geometries };
+    return shapes;
   }
 
   /** Capas de exposición, preparación y respuesta; una que falle no impide usar las demás. */
