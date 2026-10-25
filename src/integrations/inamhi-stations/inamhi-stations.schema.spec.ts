@@ -58,7 +58,25 @@ describe('toWeatherStations', () => {
 });
 
 describe('toHourlyRain', () => {
-  it('ordena las horas, lee la hora como UTC (la API la marca mal con -05:00) y deja sin dato los vacíos y negativos', () => {
+  it('formato actual (desde el 25/10/2026): lee valor_1h y respeta la hora de Ecuador', () => {
+    const response = hourlyResponseSchema.parse({
+      status: 'success',
+      datos: [
+        { fecha_toma_dato: '2026-10-25T07:00:00-05:00', valor_1h: 0.07, nivel_calidad_1h: 1, estado_1h: '1' },
+        { fecha_toma_dato: '2026-10-25T06:00:00-05:00', valor_1h: 3.04, nivel_calidad_1h: 1, estado_1h: '1' },
+        { fecha_toma_dato: '2026-10-25T05:00:00-05:00', valor_1h: null },
+      ],
+    });
+
+    // Consultado a las 07:40 de Ecuador (12:40 UTC).
+    expect(toHourlyRain(response, Date.parse('2026-10-25T12:40:00Z'))).toEqual([
+      { time: '2026-10-25T10:00:00.000Z', mm: null },
+      { time: '2026-10-25T11:00:00.000Z', mm: 3.04 },
+      { time: '2026-10-25T12:00:00.000Z', mm: 0.07 },
+    ]);
+  });
+
+  it('formato viejo: lee 1h y la hora como UTC (la API la marcaba mal con -05:00); vacíos y negativos quedan sin dato', () => {
     const response = hourlyResponseSchema.parse({
       datos: [
         { fecha_toma_dato: '2026-10-13T03:00:00-05:00', '1h': 0.05 },
@@ -68,11 +86,16 @@ describe('toHourlyRain', () => {
       ],
     });
 
-    expect(toHourlyRain(response)).toEqual([
+    // Consultado a las 00:55 de Ecuador (05:55 UTC): "05:00-05:00" leído con su desfase sería 10:00 UTC, en el futuro.
+    expect(toHourlyRain(response, Date.parse('2026-10-13T05:55:00Z'))).toEqual([
       { time: '2026-10-13T02:00:00.000Z', mm: 0.21 },
       { time: '2026-10-13T03:00:00.000Z', mm: 0.05 },
       { time: '2026-10-13T04:00:00.000Z', mm: null },
       { time: '2026-10-13T05:00:00.000Z', mm: null },
     ]);
+  });
+
+  it('una respuesta sin datos da una lista vacía', () => {
+    expect(toHourlyRain(hourlyResponseSchema.parse({ datos: [] }))).toEqual([]);
   });
 });
