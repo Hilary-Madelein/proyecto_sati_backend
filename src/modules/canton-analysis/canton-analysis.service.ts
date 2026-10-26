@@ -67,6 +67,11 @@ const RIVER_ALERT_DAYS = 2;
 /** Cantones del Ecuador (INEC, DPA 2012), simplificados a ~100 m: 224 polígonos, ~1,4 MB. */
 const CANTONS_LAYER_URL =
   'https://services7.arcgis.com/iFGeGXTAJXnjq0YN/arcgis/rest/services/Cantones_del_Ecuador/FeatureServer/0';
+/**
+ * Provincias con los límites oficiales del CONALI (DPA 2018), publicadas por la
+ * SNGR: área de cada provincia en km² (AREA). No trae Galápagos.
+ */
+const PROVINCES_LAYER_URL = 'https://services8.arcgis.com/csQLKpeoUQumugVg/arcgis/rest/services/Provincias/FeatureServer/1';
 
 export interface CantonAnalysis {
   code: string;
@@ -499,7 +504,7 @@ export class CantonAnalysisService implements OnApplicationBootstrap, OnModuleDe
    * entran: solo hay registro de la Zona 7 y harían que Loja pese por todas.
    */
   private async loadPreparedness(shapes: readonly CantonShape[]): Promise<ProvincePreparedness[]> {
-    // Área de cada provincia: la suma de la de sus cantones (capa oficial del INEC).
+    // Provincias según sus cantones, con el área de estos como respaldo (abajo se reemplaza por la del CONALI).
     const provinces = new Map<string, ProvinceResources>();
     for (const canton of shapes) {
       const code = canton.provinceCode;
@@ -515,7 +520,7 @@ export class CantonAnalysisService implements OnApplicationBootstrap, OnModuleDe
       if (layer?.source.kind !== 'arcgis') throw new Error(`la capa ${layerId} no es un servicio de ArcGIS`);
       return (await fetchArcgisLayer(layer.source.layerUrl, { fields, geometry })).features;
     };
-    const [shelters, camps, actions, works, roads] = await Promise.all([
+    const [shelters, camps, actions, works, roads, officialAreas] = await Promise.all([
       records('shelters', ['PROVINCIA']),
       records('mtop-camps', ['provincia']),
       records('rve-preventive-works', ['provincia', 'fecha_de_inicio']),
@@ -526,7 +531,14 @@ export class CantonAnalysisService implements OnApplicationBootstrap, OnModuleDe
         true,
       ),
       records('rve', ['PROVINCIA', 'DISTANCIA_KM']),
+      fetchArcgisLayer(PROVINCES_LAYER_URL, { fields: ['DPA_PROVIN', 'AREA'], geometry: false }).then((data) => data.features),
     ]);
+    // Área oficial del CONALI; la provincia que no trae (Galápagos) queda con la suma de sus cantones.
+    for (const { properties } of officialAreas) {
+      const row = provinces.get(String(properties.DPA_PROVIN ?? ''));
+      const area = Number(properties.AREA);
+      if (row && Number.isFinite(area) && area > 0) row.areaKm2 = area;
+    }
 
     let unassigned = 0;
     const add = (indicator: PreparednessIndicator, province: unknown) => {
