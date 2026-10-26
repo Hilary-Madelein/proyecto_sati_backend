@@ -121,7 +121,8 @@ export class RiskLayersService {
     const started = Date.now();
     const { features, lastEditDate, hasAttachments } = await fetchArcgisLayer(layer.source.layerUrl, layer.source);
     this.logger.log(`Capa "${layer.id}": ${features.length} entidades en ${((Date.now() - started) / 1000).toFixed(1)} s`);
-    return { ...base, fetchedAt, sourceUpdatedAt: lastEditDate, hasAttachments, ...located(features) };
+    const annotated = layer.annotate ? layer.annotate(features) : features;
+    return { ...base, fetchedAt, sourceUpdatedAt: lastEditDate, hasAttachments, ...located(annotated) };
   }
 }
 

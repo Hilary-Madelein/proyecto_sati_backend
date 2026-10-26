@@ -6,10 +6,14 @@ export interface CantonShape {
   /** Código DPA de 4 dígitos, p. ej. "0101". */
   code: string;
   name: string;
+  /** Código DPA de 2 dígitos de la provincia a la que pertenece hoy (ver PROVINCE_UPDATES). */
+  provinceCode: string;
   province: string;
   /** Región del INEC (Costa, Sierra, Amazonía, Región Insular); null si no viene. */
   region: string | null;
   population: number | null;
+  /** Área oficial del cantón (km²); null si no viene. */
+  areaKm2: number | null;
   rings: Ring[];
   /** [oeste, sur, este, norte]. */
   bbox: [number, number, number, number];
@@ -108,6 +112,15 @@ export function segmentsOf(geometry: { type: string; coordinates: unknown } | nu
         ? (geometry.coordinates as number[][][])
         : [];
   return lines.flatMap((line) => line.slice(1).map((point, i) => [line[i], point] as [number[], number[]]));
+}
+
+/** Recuadro [oeste, sur, este, norte] de un LineString o MultiLineString; null si no es una línea. */
+export function lineBox(geometry: { type: string; coordinates: unknown } | null): [number, number, number, number] | null {
+  const points = segmentsOf(geometry).flat();
+  if (points.length === 0) return null;
+  const lngs = points.map(([lng]) => lng);
+  const lats = points.map(([, lat]) => lat);
+  return [Math.min(...lngs), Math.min(...lats), Math.max(...lngs), Math.max(...lats)];
 }
 
 /** Un punto que represente a la entidad: el punto, o el primer vértice de una línea o zona. */
