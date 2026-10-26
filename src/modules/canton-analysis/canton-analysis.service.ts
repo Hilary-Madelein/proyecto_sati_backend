@@ -18,7 +18,17 @@ import {
   zonalP90,
   type CantonShape,
 } from './canton-geometry.js';
-import { preparednessIndex, type PreparednessIndicator, type ProvincePreparedness } from './preparedness.js';
+import {
+  PREPAREDNESS_WEIGHTS,
+  normalizeText,
+  preparednessIndex,
+  classifyRoadProjects,
+  provinceCodeOf,
+  type PreparednessIndicator,
+  type ProvincePreparedness,
+  type ProvinceResources,
+} from './preparedness.js';
+import { RISK_LAYERS } from '../risk-layers/risk-layers.catalog.js';
 import {
   RAIN_BANDS,
   SEMAPHORE_RANK,
@@ -42,6 +52,13 @@ const FORECAST_SHORT_HOURS = 12;
 const FORECAST_LONG_HOURS = 24;
 /** Código DPA de las zonas no delimitadas (no son una provincia). */
 const UNDEFINED_ZONE_CODE = '90';
+/**
+ * Cambios de provincia posteriores a la capa de cantones (DPA 2012), que la SNGR
+ * y el MIT ya usan: La Concordia pasó de Esmeraldas a Santo Domingo de los
+ * Tsáchilas (consulta popular de 2012) y Manga del Cura, zona no delimitada, a
+ * Manabí (consulta popular de 2015).
+ */
+const PROVINCE_UPDATES: Record<string, string> = { '0808': '23', '9003': '13' };
 /** Eventos de la SNGR recientes que cuentan como detonante. */
 const RECENT_EVENTS_MS = 72 * HOUR_MS;
 /** Días del pronóstico de caudales que se miran (hoy y mañana). */
@@ -138,6 +155,8 @@ export interface CantonAnalysisSnapshot {
   bands: readonly Band[];
   /** Índice de preparación de las 24 provincias (ISPP-FEN, ver preparedness.ts), de la más a la menos preparada. */
   provinces: ProvincePreparedness[];
+  /** Peso de cada indicador en el índice (suman 1). */
+  preparednessWeights: Record<PreparednessIndicator, number>;
   sources: SourceStatus[];
 }
 
@@ -237,7 +256,7 @@ export class CantonAnalysisService implements OnApplicationBootstrap, OnModuleDe
         (value) => `${value.from} a ${value.to}`,
       );
 
-    const [forecast, forecast12h, rivers, floodHub, events, layers] = await Promise.all([
+    const [forecast, forecast12h, rivers, floodHub, events, layers, preparedness] = await Promise.all([
       forecastWindow(FORECAST_LONG_HOURS),
       forecastWindow(FORECAST_SHORT_HOURS),
       attempt('Alertas por caudal', () => this.hydrology.getAlerts(), (value) => `${value.alerts.length} tramos`),
@@ -249,6 +268,11 @@ export class CantonAnalysisService implements OnApplicationBootstrap, OnModuleDe
         (value) => `${value.length} eventos`,
       ),
       this.loadRiskLayers(sources),
+      attempt(
+        'Índice de preparación',
+        () => this.loadPreparedness(shapes),
+        (value) => `${value.length} provincias`,
+      ),
     ]);
 
     const countPoints = (features: readonly GeoJsonFeature[] | undefined, include: (feature: GeoJsonFeature) => boolean = () => true) => {
@@ -319,7 +343,6 @@ export class CantonAnalysisService implements OnApplicationBootstrap, OnModuleDe
       // Realizadas: las que ya empezaron (no las planificadas).
       actions: countPoints(l.get('rve-preventive-works'), (f) => Date.parse(String(f.properties.fecha_de_inicio ?? '')) <= Date.now()),
       enosWorksActive: countPoints(l.get('el-nino-road-projects'), (f) => text(f, 'Estado_actual') === 'EN EJECUCIÓN'),
-      roadProjects: countPoints(l.get('el-nino-road-projects'), (f) => ['EN EJECUCIÓN', 'FINALIZADO'].includes(text(f, 'Estado_actual'))),
       culverts: countPoints(l.get('culverts-zone7')),
       shelters: countPoints(l.get('shelters')),
       sheltersActive: countPoints(l.get('shelters'), (f) => text(f, 'ESTADO') === 'ACTIVO'),
@@ -409,27 +432,6 @@ export class CantonAnalysisService implements OnApplicationBootstrap, OnModuleDe
         b.triggers.riverAlerts - a.triggers.riverAlerts,
     );
 
-    // Índice de preparación por provincia (documento "Semaforización para componente Preparación"),
-    // con los recursos efectivos: alojamientos calificados por la SNGR ("ACTIVO" es que ya alojan
-    // gente), todos los campamentos del MTOP (la capa no dice si operan), las acciones preventivas
-    // ya empezadas y los proyectos viales en ejecución o terminados. Las alcantarillas limpiadas no
-    // entran: solo hay registro de la Zona 7 y harían que Loja pese por todas.
-    const provinceTotals = new Map<string, { code: string; name: string; counts: Record<PreparednessIndicator, number> }>();
-    for (const canton of shapes) {
-      const code = canton.code.slice(0, 2);
-      if (code === UNDEFINED_ZONE_CODE) continue;
-      const row = provinceTotals.get(code) ?? {
-        code,
-        name: canton.province,
-        counts: { shelters: 0, camps: 0, preventiveActions: 0, roadProjects: 0 },
-      };
-      row.counts.shelters += get(counts.shelters, canton.code);
-      row.counts.camps += get(counts.camps, canton.code);
-      row.counts.preventiveActions += get(counts.actions, canton.code);
-      row.counts.roadProjects += get(counts.roadProjects, canton.code);
-      provinceTotals.set(code, row);
-    }
-
     this.logger.log(`Análisis por cantón listo en ${((Date.now() - started) / 1000).toFixed(1)} s`);
     return {
       updatedAt: new Date().toISOString(),
@@ -444,14 +446,15 @@ export class CantonAnalysisService implements OnApplicationBootstrap, OnModuleDe
       },
       cantons,
       bands: RAIN_BANDS,
-      provinces: preparednessIndex([...provinceTotals.values()]),
+      provinces: preparedness ?? [],
+      preparednessWeights: PREPAREDNESS_WEIGHTS,
       sources,
     };
   }
 
   private async loadCantons() {
     const { features } = await fetchArcgisLayer(CANTONS_LAYER_URL, {
-      fields: ['DPA_CANTON', 'DPA_DESCAN', 'DPA_DESPRO', 'REN_REGION', 'TOTPOP'],
+      fields: ['DPA_CANTON', 'DPA_DESCAN', 'DPA_DESPRO', 'REN_REGION', 'TOTPOP', 'AREA_KM2'],
       maxAllowableOffset: 0.001,
     });
     const shapes = features.flatMap((feature): CantonShape[] => {
@@ -459,20 +462,98 @@ export class CantonAnalysisService implements OnApplicationBootstrap, OnModuleDe
       const code = String(feature.properties.DPA_CANTON ?? '').trim();
       if (!rings.length || !code) return [];
       const population = Number(feature.properties.TOTPOP);
+      const area = Number(feature.properties.AREA_KM2);
       return [
         {
           code,
           name: toTitleCase(feature.properties.DPA_DESCAN),
+          provinceCode: code.slice(0, 2),
           province: toTitleCase(feature.properties.DPA_DESPRO),
           region: feature.properties.REN_REGION ? toTitleCase(feature.properties.REN_REGION) : null,
           population: Number.isFinite(population) && population > 0 ? population : null,
+          areaKm2: Number.isFinite(area) && area > 0 ? area : null,
           rings,
           bbox: bboxOf(rings),
         },
       ];
     });
     if (shapes.length === 0) throw new UpstreamError('ArcGIS', 'la capa de cantones llegó vacía');
+    const provinceNames = new Map(shapes.map((canton) => [canton.provinceCode, canton.province]));
+    for (const canton of shapes) {
+      const moved = PROVINCE_UPDATES[canton.code];
+      const name = moved ? provinceNames.get(moved) : undefined;
+      if (moved && name) Object.assign(canton, { provinceCode: moved, province: name });
+    }
     return shapes;
+  }
+
+  /**
+   * Índice de preparación por provincia (documento "Semaforización para componente
+   * Preparación", con los pesos del equipo). Cada registro cuenta en la provincia que
+   * declara la institución (no por su ubicación: puntos en límites o en cantones que
+   * cambiaron de provincia caían en otra), y también los que no tienen ubicación.
+   * Solo recursos efectivos: alojamientos calificados por la SNGR ("ACTIVO" es que ya
+   * alojan gente), todos los campamentos del MIT (la capa no dice si operan), las
+   * acciones preventivas ya empezadas y los proyectos viales en ejecución o
+   * terminados (sin las obras que no son viales). Las alcantarillas limpiadas no
+   * entran: solo hay registro de la Zona 7 y harían que Loja pese por todas.
+   */
+  private async loadPreparedness(shapes: readonly CantonShape[]): Promise<ProvincePreparedness[]> {
+    // Área de cada provincia: la suma de la de sus cantones (capa oficial del INEC).
+    const provinces = new Map<string, ProvinceResources>();
+    for (const canton of shapes) {
+      const code = canton.provinceCode;
+      if (code === UNDEFINED_ZONE_CODE) continue;
+      const province = provinces.get(code) ?? { code, name: canton.province, counts: { shelters: 0, camps: 0, preventiveActions: 0, roadProjects: 0 }, areaKm2: 0, rveKm: 0 };
+      province.areaKm2 += canton.areaKm2 ?? 0;
+      provinces.set(code, province);
+    }
+    const codesByName = new Map([...provinces.values()].map((province) => [normalizeText(province.name), province.code]));
+
+    const records = async (layerId: string, fields: string[], geometry = false) => {
+      const layer = RISK_LAYERS.find((item) => item.id === layerId);
+      if (layer?.source.kind !== 'arcgis') throw new Error(`la capa ${layerId} no es un servicio de ArcGIS`);
+      return (await fetchArcgisLayer(layer.source.layerUrl, { fields, geometry })).features;
+    };
+    const [shelters, camps, actions, works, roads] = await Promise.all([
+      records('shelters', ['PROVINCIA']),
+      records('mtop-camps', ['provincia']),
+      records('rve-preventive-works', ['provincia', 'fecha_de_inicio']),
+      // Con trazado: así se reconoce la misma obra cargada dos veces.
+      records(
+        'el-nino-road-projects',
+        ['Nro', 'Provincia', 'Estado_actual', 'Accion_Esp', 'Join_Count', 'Presupuesto_tot', 'Total_Obra', 'Fecha_inicio', 'Porcentaje_avance'],
+        true,
+      ),
+      records('rve', ['PROVINCIA', 'DISTANCIA_KM']),
+    ]);
+
+    let unassigned = 0;
+    const add = (indicator: PreparednessIndicator, province: unknown) => {
+      const code = provinceCodeOf(province, codesByName);
+      const row = code ? provinces.get(code) : undefined;
+      if (row) row.counts[indicator] += 1;
+      else unassigned += 1;
+    };
+    for (const { properties } of shelters) add('shelters', properties.PROVINCIA);
+    for (const { properties } of camps) add('camps', properties.provincia);
+    for (const { properties } of actions) {
+      if (Date.parse(String(properties.fecha_de_inicio ?? '')) <= Date.now()) add('preventiveActions', properties.provincia);
+    }
+    const categories = classifyRoadProjects(works);
+    works.forEach(({ properties }, i) => {
+      if (categories[i] === 'counted') add('roadProjects', properties.Provincia);
+    });
+    // Km de Red Vial Estatal de cada provincia, según la provincia de cada tramo (MIT).
+    for (const { properties } of roads) {
+      const code = provinceCodeOf(properties.PROVINCIA, codesByName);
+      const row = code ? provinces.get(code) : undefined;
+      const km = Number(properties.DISTANCIA_KM);
+      if (row && Number.isFinite(km)) row.rveKm += km;
+      else unassigned += 1;
+    }
+    if (unassigned > 0) this.logger.warn(`Índice de preparación: ${unassigned} registros sin provincia reconocible`);
+    return preparednessIndex([...provinces.values()]);
   }
 
   /** Capas de exposición, preparación y respuesta; una que falle no impide usar las demás. */

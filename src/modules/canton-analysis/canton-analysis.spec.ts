@@ -1,7 +1,7 @@
 import type { RasterGrid } from '../../common/raster/raster-grid.js';
 import { CantonLocator, bboxOf, distanceKm, ringsOf, segmentsOf, zonalP90, type CantonShape } from './canton-geometry.js';
 import { classifyRain, classifyRain12h, classifyRain24h } from './rain-thresholds.js';
-import { preparednessIndex, preparednessLevel } from './preparedness.js';
+import { classifyRoadProjects, isRoadProject, preparednessIndex, preparednessLevel, provinceCodeOf, sameDescription, sameTrace } from './preparedness.js';
 
 describe('classifyRain12h', () => {
   it('usa los umbrales de 12 h del documento con tres colores (el naranja pasa a rojo)', () => {
@@ -51,23 +51,97 @@ describe('classifyRain: S = máx(S12h, S24h)', () => {
 });
 
 describe('preparednessIndex (ISPP-FEN)', () => {
-  it('reproduce el ejemplo del documento: 100, 56,7 y 27,9', () => {
+  it('compara tasas, no conteos: alojamientos por km² y el resto por km de Red Vial Estatal', () => {
     const result = preparednessIndex([
-      { code: 'C', name: 'Provincia C', counts: { shelters: 10, camps: 1, preventiveActions: 40, roadProjects: 2 } },
-      { code: 'A', name: 'Provincia A', counts: { shelters: 30, camps: 4, preventiveActions: 120, roadProjects: 10 } },
-      { code: 'B', name: 'Provincia B', counts: { shelters: 15, camps: 2, preventiveActions: 80, roadProjects: 6 } },
+      { code: 'C', name: 'Provincia C', counts: { shelters: 10, camps: 1, preventiveActions: 40, roadProjects: 2 }, areaKm2: 1000, rveKm: 0 },
+      { code: 'A', name: 'Provincia A', counts: { shelters: 30, camps: 4, preventiveActions: 120, roadProjects: 10 }, areaKm2: 1000, rveKm: 100 },
+      { code: 'B', name: 'Provincia B', counts: { shelters: 15, camps: 2, preventiveActions: 80, roadProjects: 6 }, areaKm2: 500, rveKm: 100 },
     ]);
+    // B tiene la mitad de alojamientos que A pero en la mitad del área: misma densidad (100).
+    // B: 0,2·100 + 0,2·50 + 0,25·66,7 + 0,35·60 = 67,7 · C: sin red vial, solo cuentan sus alojamientos: 0,2·33,3 = 6,7.
     expect(result.map((province) => [province.code, province.index, province.level])).toEqual([
       ['A', 100, 'very-high'],
-      ['B', 56.7, 'medium'],
-      ['C', 27.9, 'low'],
+      ['B', 67.7, 'high'],
+      ['C', 6.7, 'very-low'],
     ]);
-    expect(result[1].scores).toEqual({ shelters: 50, camps: 50, preventiveActions: 66.7, roadProjects: 60 });
+    expect(result[1].scores).toEqual({ shelters: 100, camps: 50, preventiveActions: 66.7, roadProjects: 60 });
+    expect(result[1].rates.shelters).toBeCloseTo(0.03);
   });
 
   it('un indicador sin registros en ninguna provincia vale 0 (no divide por cero)', () => {
-    const [only] = preparednessIndex([{ code: 'X', name: 'X', counts: { shelters: 5, camps: 0, preventiveActions: 0, roadProjects: 0 } }]);
-    expect(only.index).toBe(25);
+    const [only] = preparednessIndex([
+      { code: 'X', name: 'X', counts: { shelters: 5, camps: 0, preventiveActions: 0, roadProjects: 0 }, areaKm2: 100, rveKm: 50 },
+    ]);
+    expect(only.index).toBe(20);
+  });
+
+  it('reconoce la provincia del registro aunque esté escrita distinto', () => {
+    const codes = new Map([
+      ['EL ORO', '07'],
+      ['SANTO DOMINGO DE LOS TSACHILAS', '23'],
+      ['SANTA ELENA', '24'],
+      ['LOS RIOS', '12'],
+    ]);
+    expect(['EL  ORO', 'El Oro', 'SANTO DOMINGO', 'LOS RÍOS'].map((name) => provinceCodeOf(name, codes))).toEqual(['07', '07', '23', '12']);
+    // Ambiguo o desconocido: no se adivina.
+    expect(provinceCodeOf('SAN', codes)).toBeNull(); // Santa Elena o Santo Domingo
+    expect(provinceCodeOf('', codes)).toBeNull();
+  });
+
+  it('solo cuenta como proyecto vial las obras viales', () => {
+    expect(isRoadProject('CARRETERA CHONTADURO - CHUMUNDE', 0)).toBe(true);
+    expect(isRoadProject('CONSTRUCCION DEL PUENTE QUIMÍS', 1)).toBe(true);
+    expect(isRoadProject('RECONSTRUCCIÓN DE LA INFRAESTRUCTURA AFECTADA EL SECTOR TAMBAN', 1)).toBe(true);
+    expect(isRoadProject('MERCADO MUNICIPAL DE CALCETA', 0)).toBe(false);
+    expect(isRoadProject('CONSTRUCCIÓN DE UNA PLANTA DE AGUA POTABLE Y MEJORAMIENTO DEL SISTEMA DE IMPULSION', 0)).toBe(false);
+    expect(isRoadProject('ASFALTADO VIAL Y OBRAS COMPLEMENTARIAS EN AVENIDA PUERTA DEL SOL II', 1)).toBe(false);
+  });
+
+  it('reconoce la misma obra cargada dos veces por su trazado', () => {
+    expect(sameTrace([-79.4, -2.35, -79.3, -2.2], [-79.395, -2.352, -79.302, -2.205])).toBe(true);
+    expect(sameTrace([-79.4, -2.35, -79.3, -2.2], [-79.4, -2.35, -79.3, -2.1])).toBe(false);
+    expect(sameTrace(null, null)).toBe(false);
+  });
+
+  it('juzga cada obra por su estado y marca como repetidas las copias de las que cuentan', () => {
+    const line = (lng: number, length = 0.2) => ({ type: 'LineString', coordinates: [[lng, -2], [lng + length, -2.1]] });
+    const work = (Nro: number, Estado_actual: string, Accion_Esp: string, geometry: object, contract = false, Provincia = 'GUAYAS') => ({
+      type: 'Feature' as const,
+      geometry: geometry as { type: string; coordinates: unknown },
+      properties: { Nro, Provincia, Estado_actual, Accion_Esp, Join_Count: 1, Presupuesto_tot: contract ? 1000 : null },
+    });
+    const E15 = 'MANTENIMIENTO PREVENTIVO DE LA RED VIAL ESTATAL E-15, DESDE ROCAFUERTE';
+    const E482 = 'REHABILITACIÓN Y MANTENIMIENTO DE LA RED VIAL ESTATAL E482, TRAMO MONTECRISTI';
+    const categories = classifyRoadProjects([
+      work(12, 'En ejecución', 'REHABILITACIÓN DE LA VÍA E-47 EL TRIUNFO', line(-79.4)), // copia del 6 (mismo trazado)
+      work(6, 'En ejecución', 'REHABILITACIÓN DE LA VÍA E-47 EL TRIUNFO', line(-79.4), true),
+      work(7, 'Finalizado', 'REHABILITACIÓN TRAMO PALESTINA - VINCES', line(-79.9)),
+      work(13, 'Por contratar', 'RECAPEO ASFÁLTICO', line(-80.1)),
+      work(18, 'En ejecución', 'ASFALTADO EN AVENIDA PUERTA DEL SOL II', line(-80.9)),
+      // El 10 está por adjudicar y el 31 (misma descripción, recortada) en ejecución: el 31 cuenta por su propio estado.
+      work(31, 'En ejecución', E15, line(-80.5, 0.5)),
+      work(10, 'Por adjudicar', `${E15}, CON UNA LONGITUD DE 47,6 KM`, line(-80.45, 0.02), true),
+      work(30, 'En ejecución', E482, line(-81.2, 0.6)), // copia del 9: misma descripción recortada
+      work(9, 'En ejecución', `${E482}, LOCALIZADO EN MANABÍ`, line(-81.3, 0.3), true),
+      work(6, 'En ejecución', 'REHABILITACIÓN DE LA VÍA E-47 EL TRIUNFO', line(-79.4), true, 'CAÑAR'), // otra provincia
+    ]);
+    expect(categories).toEqual([
+      'repeated',
+      'counted',
+      'counted',
+      'not-contracted',
+      'not-road',
+      'counted',
+      'not-contracted',
+      'repeated',
+      'counted',
+      'counted',
+    ]);
+  });
+
+  it('reconoce la misma descripción recortada, no las que solo empiezan igual', () => {
+    expect(sameDescription('MANTENIMIENTO PREVENTIVO DE LA RED VIAL ESTATAL E-15', 'MANTENIMIENTO PREVENTIVO DE LA RED VIAL ESTATAL E-15, CON 47,6 KM')).toBe(true);
+    expect(sameDescription('REHABILITACIÓN DE LA VÍA', 'REHABILITACIÓN DE LA VÍA QUEVEDO - EL EMPALME')).toBe(false); // muy corta
   });
 
   it('usa los intervalos del semáforo del documento', () => {
@@ -100,7 +174,7 @@ const square = (code: string, lng: number, lat: number): CantonShape => {
       ],
     ],
   });
-  return { code, name: code, province: 'P', region: null, population: null, rings, bbox: bboxOf(rings) };
+  return { code, name: code, provinceCode: code.slice(0, 2), province: 'P', region: null, population: null, areaKm2: null, rings, bbox: bboxOf(rings) };
 };
 
 describe('CantonLocator', () => {

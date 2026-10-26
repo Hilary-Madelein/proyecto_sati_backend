@@ -20,6 +20,8 @@ export interface ArcgisQueryOptions {
   where?: string;
   /** Tolerancia de simplificación en grados (líneas y polígonos); sin simplificar si se omite. */
   maxAllowableOffset?: number;
+  /** false = solo los datos, sin geometría (mucho más liviano). */
+  geometry?: boolean;
 }
 
 export interface ArcgisLayerData {
@@ -83,6 +85,7 @@ export async function fetchArcgisLayer(layerUrl: string, options: ArcgisQueryOpt
     f: 'geojson',
   };
   if (options.maxAllowableOffset) params.maxAllowableOffset = String(options.maxAllowableOffset);
+  if (options.geometry === false) params.returnGeometry = 'false';
 
   const features: GeoJsonFeature[] = [];
   for (let offset = 0; ; ) {

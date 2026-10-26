@@ -1,7 +1,9 @@
+import { annotateRoadProjects } from '../canton-analysis/preparedness.js';
 import type { RiskLayerDefinition } from './risk-layer.js';
 
 const SNGR_AGOL = 'https://services8.arcgis.com/csQLKpeoUQumugVg/arcgis/rest/services';
-const MTOP_AGOL = 'https://services6.arcgis.com/7VeuPjsMUY1CwfEq/arcgis/rest/services';
+/** Ministerio de Infraestructura y Transporte (MIT, antes MTOP). */
+const MIT_AGOL = 'https://services6.arcgis.com/7VeuPjsMUY1CwfEq/arcgis/rest/services';
 
 /** Encuestas que se llenan en campo (Survey123): cambian a diario. */
 const SURVEY_REFRESH = 15;
@@ -41,7 +43,7 @@ export const RISK_LAYERS: readonly RiskLayerDefinition[] = [
     id: 'rve-critical-points',
     title: 'Puntos críticos en la RVE',
     component: 'amenaza',
-    attribution: 'MTOP',
+    attribution: 'MIT',
     source: {
       kind: 'arcgis',
       layerUrl: `${SNGR_AGOL}/Puntos_Cr%C3%ADticos_en_la_RVE/FeatureServer/0`,
@@ -55,10 +57,10 @@ export const RISK_LAYERS: readonly RiskLayerDefinition[] = [
     id: 'rve',
     title: 'Red Vial Estatal',
     component: 'exposicion',
-    attribution: 'MTOP',
+    attribution: 'MIT',
     source: {
       kind: 'arcgis',
-      layerUrl: `${MTOP_AGOL}/Red_Vial_Estatal_2026/FeatureServer/0`,
+      layerUrl: `${MIT_AGOL}/Red_Vial_Estatal_2026/FeatureServer/0`,
       fields: [
         'CODIGO_DE_VIA',
         'NOMBRE_TRAMO',
@@ -87,10 +89,10 @@ export const RISK_LAYERS: readonly RiskLayerDefinition[] = [
     id: 'bridges',
     title: 'Puentes',
     component: 'exposicion',
-    attribution: 'MTOP',
+    attribution: 'MIT',
     source: {
       kind: 'arcgis',
-      layerUrl: `${MTOP_AGOL}/Puentes_fijos/FeatureServer/0`,
+      layerUrl: `${MIT_AGOL}/Puentes_fijos/FeatureServer/0`,
       fields: [
         'NOMBRE_DEL_PUENTE',
         'ESTADO',
@@ -215,10 +217,10 @@ export const RISK_LAYERS: readonly RiskLayerDefinition[] = [
     id: 'machinery',
     title: 'Maquinaria distribuida a nivel nacional',
     component: 'preparacion',
-    attribution: 'MTOP · DCOIT',
+    attribution: 'MIT · DCOIT',
     source: {
       kind: 'arcgis',
-      layerUrl: `${MTOP_AGOL}/survey123_0ebc12395a634690be3d59498aa6cffd/FeatureServer/0`,
+      layerUrl: `${MIT_AGOL}/survey123_0ebc12395a634690be3d59498aa6cffd/FeatureServer/0`,
       // Sin registro, chasis, motor ni nombre del operador.
       fields: [
         'tipo_de_maquinaria_y_veh_culo',
@@ -256,12 +258,12 @@ export const RISK_LAYERS: readonly RiskLayerDefinition[] = [
   },
   {
     id: 'mtop-camps',
-    title: 'Campamentos del MTOP',
+    title: 'Campamentos del MIT',
     component: 'preparacion',
-    attribution: 'MTOP',
+    attribution: 'MIT',
     source: {
       kind: 'arcgis',
-      layerUrl: `${MTOP_AGOL}/survey123_2ffc3d517efa48679de2f5849b18a6d4/FeatureServer/0`,
+      layerUrl: `${MIT_AGOL}/survey123_2ffc3d517efa48679de2f5849b18a6d4/FeatureServer/0`,
       fields: ['provincia', 'EditDate'],
       refreshMinutes: SURVEY_REFRESH,
     },
@@ -270,7 +272,7 @@ export const RISK_LAYERS: readonly RiskLayerDefinition[] = [
     id: 'rve-preventive-works',
     title: 'Acciones preventivas',
     component: 'preparacion',
-    attribution: 'MTOP',
+    attribution: 'MIT',
     source: {
       kind: 'arcgis',
       layerUrl: `${SNGR_AGOL}/survey123_fc77ead53fa54d599f807ce51f415fbc/FeatureServer/0`,
@@ -290,7 +292,7 @@ export const RISK_LAYERS: readonly RiskLayerDefinition[] = [
     id: 'el-nino-road-projects',
     title: 'Proyectos viales asociados al fenómeno de El Niño',
     component: 'preparacion',
-    attribution: 'MTOP',
+    attribution: 'MIT',
     source: {
       kind: 'arcgis',
       layerUrl: `${SNGR_AGOL}/Obras_Mitigaci%C3%B3n_ENOS/FeatureServer/9`,
@@ -312,16 +314,18 @@ export const RISK_LAYERS: readonly RiskLayerDefinition[] = [
         'Provincia',
         'ZONAL',
         'OBSERVACIONES',
+        'Join_Count',
       ],
       maxAllowableOffset: 0.0005,
       refreshMinutes: STATIC_REFRESH,
     },
+    annotate: annotateRoadProjects,
   },
   {
     id: 'culverts-zone7',
     title: 'Limpieza de alcantarillas · Zona 7',
     component: 'preparacion',
-    attribution: 'MTOP Zona 7 (Loja) · microempresas',
+    attribution: 'MIT Zona 7 (Loja) · microempresas',
     source: { kind: 'file', file: 'alcantarillas-zona7.geojson' },
   },
 
@@ -330,10 +334,10 @@ export const RISK_LAYERS: readonly RiskLayerDefinition[] = [
     id: 'road-adverse-events',
     title: 'Eventos adversos en vías',
     component: 'respuesta',
-    attribution: 'MTOP',
+    attribution: 'MIT',
     source: {
       kind: 'arcgis',
-      layerUrl: `${MTOP_AGOL}/Eventos_Adversos/FeatureServer/0`,
+      layerUrl: `${MIT_AGOL}/Eventos_Adversos/FeatureServer/0`,
       // Sin el nombre de quien llenó la encuesta.
       fields: [
         'tipo_de_evento',
@@ -358,7 +362,7 @@ export const RISK_LAYERS: readonly RiskLayerDefinition[] = [
     id: 'rve-recovery',
     title: 'Trabajos para recuperar la transitabilidad',
     component: 'respuesta',
-    attribution: 'MTOP',
+    attribution: 'MIT',
     source: {
       kind: 'arcgis',
       // Vista de resultados de la encuesta (el servicio "…_form" solo recibe formularios).

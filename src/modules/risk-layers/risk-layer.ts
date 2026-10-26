@@ -1,3 +1,5 @@
+import type { GeoJsonFeature } from '../../integrations/arcgis/arcgis-feature-layer.js';
+
 /** Componente de la gestión del riesgo al que pertenece una capa (las pestañas del frontend). */
 export type RiskComponent = 'amenaza' | 'exposicion' | 'preparacion' | 'respuesta';
 
@@ -28,6 +30,8 @@ export interface RiskLayerDefinition {
   component: RiskComponent;
   attribution: string;
   source: ArcgisRiskLayerSource | FileRiskLayerSource;
+  /** Campos que calcula el backend sobre las entidades descargadas (p. ej. si una obra cuenta en el índice de preparación). */
+  annotate?: (features: GeoJsonFeature[]) => GeoJsonFeature[];
 }
 
 export interface RiskLayerSummary {
