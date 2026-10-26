@@ -4,10 +4,10 @@ import { classifyRain, classifyRain12h, classifyRain24h } from './rain-threshold
 import { classifyRoadProjects, isRoadProject, preparednessIndex, preparednessLevel, provinceCodeOf, sameDescription, sameTrace } from './preparedness.js';
 
 describe('classifyRain12h', () => {
-  it('usa los umbrales de 12 h del documento con tres colores (el naranja pasa a rojo)', () => {
+  it('usa los umbrales de 12 h del documento con tres colores (intensa en amarillo, rojo desde torrencial)', () => {
     expect([0, 0.05, 4.9].map((mm) => classifyRain12h(mm).semaphore)).toEqual(['green', 'green', 'green']);
-    expect([5, 14.9, 15, 29.9].map((mm) => classifyRain12h(mm).semaphore)).toEqual(['yellow', 'yellow', 'yellow', 'yellow']);
-    expect([30, 69.9, 70, 140].map((mm) => classifyRain12h(mm).semaphore)).toEqual(['red', 'red', 'red', 'red']);
+    expect([5, 14.9, 15, 29.9, 30, 69.9].map((mm) => classifyRain12h(mm).semaphore)).toEqual(['yellow', 'yellow', 'yellow', 'yellow', 'yellow', 'yellow']);
+    expect([70, 140].map((mm) => classifyRain12h(mm).semaphore)).toEqual(['red', 'red']);
     expect([0.05, 3, 10, 20, 50, 100, 200].map((mm) => classifyRain12h(mm).label)).toEqual([
       'Mínima',
       'Ligera',
@@ -22,7 +22,7 @@ describe('classifyRain12h', () => {
 
 describe('classifyRain24h', () => {
   it('usa los umbrales de 24 h del documento', () => {
-    expect([9.9, 10, 49.9, 50, 100, 250].map((mm) => classifyRain24h(mm).semaphore)).toEqual(['green', 'yellow', 'yellow', 'red', 'red', 'red']);
+    expect([9.9, 10, 49.9, 50, 99.9, 100, 250].map((mm) => classifyRain24h(mm).semaphore)).toEqual(['green', 'yellow', 'yellow', 'yellow', 'yellow', 'red', 'red']);
     expect([5, 10, 25, 50, 100, 250].map((mm) => classifyRain24h(mm).label)).toEqual([
       'Ligera',
       'Moderada',
@@ -38,8 +38,10 @@ describe('classifyRain: S = máx(S12h, S24h)', () => {
   it('manda la categoría más alta de las dos ventanas', () => {
     // 4 mm en 12 h es verde, pero 45 mm en 24 h es amarillo (fuerte): lluvia larga y moderada.
     expect(classifyRain(4, 45)).toMatchObject({ decidedBy: '24h', band: { semaphore: 'yellow', label: 'Fuerte' } });
-    // 32 mm en 12 h ya es rojo aunque las 24 h (40 mm) solo den amarillo: aguacero corto.
-    expect(classifyRain(32, 40)).toMatchObject({ decidedBy: '12h', band: { semaphore: 'red', label: 'Intensa' } });
+    // 32 mm en 12 h ya es intensa aunque las 24 h (40 mm) solo den fuerte: aguacero corto.
+    expect(classifyRain(32, 40)).toMatchObject({ decidedBy: '12h', band: { semaphore: 'yellow', label: 'Intensa' } });
+    // 75 mm en 12 h es torrencial (rojo) aunque las 24 h (90 mm) den intensa.
+    expect(classifyRain(75, 90)).toMatchObject({ decidedBy: '12h', band: { semaphore: 'red', label: 'Torrencial' } });
     // Con la misma categoría decide la de 12 h.
     expect(classifyRain(6, 12)?.decidedBy).toBe('12h');
   });
