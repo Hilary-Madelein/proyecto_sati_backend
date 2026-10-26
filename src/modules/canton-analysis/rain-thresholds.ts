@@ -18,7 +18,8 @@ export interface Band {
 /**
  * Umbrales de lluvia de 12 y 24 h, consecuencias y acciones del documento
  * "Lluvia de 12 horas" (25/10/2026), de menor a mayor. Con tres colores: verde
- * hasta ligera, amarillo moderada y fuerte, rojo desde intensa.
+ * hasta ligera, amarillo de moderada a intensa, rojo desde torrencial. Intensa
+ * pasó de rojo a amarillo el 26/10/2026, mientras se validan los umbrales.
  */
 export const RAIN_BANDS: readonly Band[] = [
   {
@@ -62,7 +63,7 @@ export const RAIN_BANDS: readonly Band[] = [
     label: 'Intensa',
     from12h: 30,
     from24h: 50,
-    semaphore: 'red',
+    semaphore: 'yellow',
     consequences: 'Inundaciones urbanas, crecidas rápidas y posibles desbordamientos localizados.',
     actions: 'Activar protocolos preventivos y preparar recursos de respuesta.',
   },
