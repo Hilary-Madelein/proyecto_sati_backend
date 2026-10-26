@@ -379,4 +379,16 @@ export const RISK_LAYERS: readonly RiskLayerDefinition[] = [
       refreshMinutes: SURVEY_REFRESH,
     },
   },
+  {
+    id: 'deployed-road-equipment',
+    title: 'Equipo caminero desplegado',
+    component: 'respuesta',
+    attribution: 'SNGR',
+    source: {
+      kind: 'arcgis',
+      layerUrl: `${SNGR_AGOL}/Equipo_Caminero_Desplegado/FeatureServer/9`,
+      fields: ['Tipo_maquinaria', 'DPA_DESCAN', 'DPA_DESPRO'],
+      refreshMinutes: SURVEY_REFRESH,
+    },
+  },
 ];
