@@ -1,12 +1,14 @@
 import type { RasterGrid } from '../../common/raster/raster-grid.js';
-import { CantonLocator, bboxOf, distanceKm, ringsOf, segmentsOf, zonalP90, type CantonShape } from './canton-geometry.js';
+import { CantonLocator, bboxOf, distanceKm, ringsOf, segmentsOf, type CantonShape } from './canton-geometry.js';
+import { parishRain } from './parishes.js';
 import { classifyRain, classifyRain12h, classifyRain24h } from './rain-thresholds.js';
 import { classifyRoadProjects, isRoadProject, preparednessIndex, preparednessLevel, provinceCodeOf, sameDescription, sameTrace } from './preparedness.js';
 
 describe('classifyRain12h', () => {
-  it('usa los umbrales de 12 h del documento con tres colores (intensa en amarillo, rojo desde torrencial)', () => {
+  it('usa los umbrales de 12 h del documento con sus cuatro colores', () => {
     expect([0, 0.05, 4.9].map((mm) => classifyRain12h(mm).semaphore)).toEqual(['green', 'green', 'green']);
-    expect([5, 14.9, 15, 29.9, 30, 69.9].map((mm) => classifyRain12h(mm).semaphore)).toEqual(['yellow', 'yellow', 'yellow', 'yellow', 'yellow', 'yellow']);
+    expect([5, 14.9, 15, 29.9].map((mm) => classifyRain12h(mm).semaphore)).toEqual(['yellow', 'yellow', 'yellow', 'yellow']);
+    expect([30, 69.9].map((mm) => classifyRain12h(mm).semaphore)).toEqual(['orange', 'orange']);
     expect([70, 140].map((mm) => classifyRain12h(mm).semaphore)).toEqual(['red', 'red']);
     expect([0.05, 3, 10, 20, 50, 100, 200].map((mm) => classifyRain12h(mm).label)).toEqual([
       'Mínima',
@@ -22,7 +24,7 @@ describe('classifyRain12h', () => {
 
 describe('classifyRain24h', () => {
   it('usa los umbrales de 24 h del documento', () => {
-    expect([9.9, 10, 49.9, 50, 99.9, 100, 250].map((mm) => classifyRain24h(mm).semaphore)).toEqual(['green', 'yellow', 'yellow', 'yellow', 'yellow', 'red', 'red']);
+    expect([9.9, 10, 49.9, 50, 99.9, 100, 250].map((mm) => classifyRain24h(mm).semaphore)).toEqual(['green', 'yellow', 'yellow', 'orange', 'orange', 'red', 'red']);
     expect([5, 10, 25, 50, 100, 250].map((mm) => classifyRain24h(mm).label)).toEqual([
       'Ligera',
       'Moderada',
@@ -39,7 +41,7 @@ describe('classifyRain: S = máx(S12h, S24h)', () => {
     // 4 mm en 12 h es verde, pero 45 mm en 24 h es amarillo (fuerte): lluvia larga y moderada.
     expect(classifyRain(4, 45)).toMatchObject({ decidedBy: '24h', band: { semaphore: 'yellow', label: 'Fuerte' } });
     // 32 mm en 12 h ya es intensa aunque las 24 h (40 mm) solo den fuerte: aguacero corto.
-    expect(classifyRain(32, 40)).toMatchObject({ decidedBy: '12h', band: { semaphore: 'yellow', label: 'Intensa' } });
+    expect(classifyRain(32, 40)).toMatchObject({ decidedBy: '12h', band: { semaphore: 'orange', label: 'Intensa' } });
     // 75 mm en 12 h es torrencial (rojo) aunque las 24 h (90 mm) den intensa.
     expect(classifyRain(75, 90)).toMatchObject({ decidedBy: '12h', band: { semaphore: 'red', label: 'Torrencial' } });
     // Con la misma categoría decide la de 12 h.
@@ -188,25 +190,31 @@ describe('CantonLocator', () => {
   });
 });
 
-describe('zonalP90', () => {
-  // Grilla de 10 x 10 celdas de 0,1° sobre el cantón A; la lluvia crece de oeste a este (0 a 9 mm).
-  const grid: RasterGrid = {
+describe('parishRain', () => {
+  // Grilla de 10 x 10 celdas de 0,1°; la lluvia crece de oeste a este (0 a 90 mm en 12 h, el doble en 24 h).
+  const grid = (factor: number): RasterGrid => ({
     width: 10,
     height: 10,
     bbox: [-80, -2, -79, -1],
-    values: Float64Array.from({ length: 100 }, (_, i) => i % 10),
+    values: Float64Array.from({ length: 100 }, (_, i) => (i % 10) * 10 * factor),
     noData: null,
-  };
-
-  it('toma el percentil 90 de las celdas dentro del cantón', () => {
-    expect(zonalP90(grid, square('A', -80, -2))).toBe(9);
   });
 
-  it('con un cantón más chico que una celda usa la del centro', () => {
-    const tiny = square('T', -79.55, -1.55);
-    const small: CantonShape = { ...tiny, rings: ringsOf({ type: 'Polygon', coordinates: [[[-79.55, -1.55], [-79.54, -1.55], [-79.54, -1.54], [-79.55, -1.54], [-79.55, -1.55]]] }) };
-    small.bbox = bboxOf(small.rings);
-    expect(zonalP90(grid, small)).toBe(4);
+  it('toma el valor de la celda donde cae el punto, sin promediar', () => {
+    // Celda de la columna 7: 70 mm en 12 h (torrencial, rojo) y 140 mm en 24 h.
+    const rain = parishRain({ lat: -1.55, lng: -79.25 }, grid(1), grid(2));
+    expect(rain.forecast).toEqual({ mm12h: 70, mm24h: 140, category12h: 'torrencial', category24h: 'torrencial' });
+    expect(rain).toMatchObject({ semaphore: 'red', category: 'torrencial', decidedBy: '12h' });
+  });
+
+  it('manda la ventana más grave', () => {
+    // 20 mm en 12 h (fuerte) y 60 mm en 24 h (intensa): decide la de 24 h, en naranja.
+    const rain = parishRain({ lat: -1.55, lng: -79.75 }, grid(1), grid(3));
+    expect(rain).toMatchObject({ semaphore: 'orange', category: 'intensa', decidedBy: '24h' });
+  });
+
+  it('fuera de la grilla no clasifica (no es verde)', () => {
+    expect(parishRain({ lat: 0.5, lng: -78 }, grid(1), grid(2))).toMatchObject({ decidedBy: null, forecast: { mm12h: null, mm24h: null } });
   });
 });
 

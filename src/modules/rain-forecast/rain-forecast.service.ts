@@ -76,7 +76,8 @@ interface Rendered {
 export class RainForecastService {
   private readonly runCache = new TtlCache<ForecastRun | null>(10 * MINUTE_MS, 1);
   private readonly renderCache = new TtlCache<Rendered>(6 * HOUR_MS, 12);
-  private readonly windowCache = new TtlCache<WindowRainGrid | null>(30 * MINUTE_MS, 4);
+  // Corta: al empezar un bloque de 3 h, la ventana "desde ahora" cambia (cada bloque ya se guarda aparte, sumar es barato).
+  private readonly windowCache = new TtlCache<WindowRainGrid | null>(5 * MINUTE_MS, 4);
 
   constructor(private readonly source: RainForecastSource) {}
 

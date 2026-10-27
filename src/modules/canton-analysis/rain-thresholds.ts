@@ -1,5 +1,5 @@
-/** Color del semáforo por lluvia de 12 y 24 h: solo tres (el naranja del documento pasa a rojo). */
-export type Semaphore = 'green' | 'yellow' | 'red';
+/** Color del semáforo por lluvia de 12 y 24 h, los cuatro del documento. */
+export type Semaphore = 'green' | 'yellow' | 'orange' | 'red';
 
 export type RainCategory = 'minima' | 'ligera' | 'moderada' | 'fuerte' | 'intensa' | 'torrencial' | 'extrema';
 
@@ -17,9 +17,9 @@ export interface Band {
 
 /**
  * Umbrales de lluvia de 12 y 24 h, consecuencias y acciones del documento
- * "Lluvia de 12 horas" (25/10/2026), de menor a mayor. Con tres colores: verde
- * hasta ligera, amarillo de moderada a intensa, rojo desde torrencial. Intensa
- * pasó de rojo a amarillo el 26/10/2026, mientras se validan los umbrales.
+ * "Lluvia de 12 horas" (25/10/2026), de menor a mayor, con los colores del
+ * documento: verde hasta ligera, amarillo moderada y fuerte, naranja intensa y
+ * rojo desde torrencial.
  */
 export const RAIN_BANDS: readonly Band[] = [
   {
@@ -63,7 +63,7 @@ export const RAIN_BANDS: readonly Band[] = [
     label: 'Intensa',
     from12h: 30,
     from24h: 50,
-    semaphore: 'yellow',
+    semaphore: 'orange',
     consequences: 'Inundaciones urbanas, crecidas rápidas y posibles desbordamientos localizados.',
     actions: 'Activar protocolos preventivos y preparar recursos de respuesta.',
   },
@@ -118,4 +118,4 @@ export function classifyRain(mm12h: number | null, mm24h: number | null): { band
   return RAIN_BANDS.indexOf(by24h) > RAIN_BANDS.indexOf(by12h) ? { band: by24h, decidedBy: '24h' } : { band: by12h, decidedBy: '12h' };
 }
 
-export const SEMAPHORE_RANK: Record<Semaphore, number> = { green: 0, yellow: 1, red: 2 };
+export const SEMAPHORE_RANK: Record<Semaphore, number> = { green: 0, yellow: 1, orange: 2, red: 3 };

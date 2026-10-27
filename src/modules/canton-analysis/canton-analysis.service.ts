@@ -15,9 +15,9 @@ import {
   distanceKm,
   ringsOf,
   segmentsOf,
-  zonalP90,
   type CantonShape,
 } from './canton-geometry.js';
+import { loadParishes, parishRain, type ParishPoint, type ParishRain } from './parishes.js';
 import {
   PREPAREDNESS_WEIGHTS,
   normalizeText,
@@ -29,17 +29,7 @@ import {
   type ProvinceResources,
 } from './preparedness.js';
 import { RISK_LAYERS } from '../risk-layers/risk-layers.catalog.js';
-import {
-  RAIN_BANDS,
-  SEMAPHORE_RANK,
-  classifyRain,
-  classifyRain12h,
-  classifyRain24h,
-  type Band,
-  type RainCategory,
-  type RainWindow,
-  type Semaphore,
-} from './rain-thresholds.js';
+import { RAIN_BANDS, SEMAPHORE_RANK, type Band, type Semaphore } from './rain-thresholds.js';
 
 const MINUTE_MS = 60 * 1000;
 const HOUR_MS = 60 * MINUTE_MS;
@@ -47,6 +37,10 @@ const HOUR_MS = 60 * MINUTE_MS;
 const REFRESH_MS = HOUR_MS;
 /** Primer cálculo poco después de arrancar, para que la primera consulta no lo espere. */
 const FIRST_RUN_DELAY_MS = MINUTE_MS;
+/** Bloques del WRF: las ventanas empiezan en el bloque en curso, así que cambian cada 3 h. */
+const STEP_MS = 3 * HOUR_MS;
+/** Recálculo poco después de empezar cada bloque (pasada la caché de 5 min de la ventana de lluvia). */
+const NEXT_STEP_DELAY_MS = 6 * MINUTE_MS;
 /** Ventanas del semáforo, contadas desde ahora (pasos de 3 h del WRF): manda la más alta de las dos. */
 const FORECAST_SHORT_HOURS = 12;
 const FORECAST_LONG_HOURS = 24;
@@ -59,8 +53,15 @@ const UNDEFINED_ZONE_CODE = '90';
  * Manabí (consulta popular de 2015).
  */
 const PROVINCE_UPDATES: Record<string, string> = { '0808': '23', '9003': '13' };
+/** Cantón de la capa de cantones (DPA 2012) con otro código en las parroquias del CONALI 2023: La Concordia. */
+const CANTON_CODE_ALIASES: Record<string, string> = { '2302': '0808' };
 /** Eventos de la SNGR recientes que cuentan como detonante. */
 const RECENT_EVENTS_MS = 72 * HOUR_MS;
+/**
+ * Eventos en vías sin atender que cuentan: los de los últimos meses (el servicio
+ * guarda eventos desde 2015, y los viejos suelen quedar abiertos sin actualizar).
+ */
+const ROAD_EVENTS_MONTHS = 3;
 /** Días del pronóstico de caudales que se miran (hoy y mañana). */
 const RIVER_ALERT_DAYS = 2;
 
@@ -81,23 +82,6 @@ export interface CantonAnalysis {
   region: string | null;
   /** Centro del recuadro del cantón [lat, lng], para centrar el mapa. */
   center: [number, number];
-  semaphore: Semaphore;
-  category: RainCategory;
-  categoryLabel: string;
-  consequences: string;
-  actions: string;
-  /**
-   * Lluvia pronosticada por el WRF en el cantón (percentil 90 de sus celdas): próximas 12 y 24 h, desde ahora,
-   * y la categoría de cada ventana con sus umbrales (el cantón toma la más alta de las dos).
-   */
-  forecast: {
-    mm12h: number | null;
-    mm24h: number | null;
-    category12h: RainCategory | null;
-    category24h: RainCategory | null;
-  };
-  /** Ventana que decidió el color (S = máx(S12h, S24h)); null si no hay pronóstico. */
-  decidedBy: RainWindow | null;
   triggers: {
     /** Tramos de río con alerta hoy o mañana (sin los que el modelo sobrestima siempre). */
     riverAlerts: number;
@@ -133,11 +117,25 @@ export interface CantonAnalysis {
     machinery: number;
     machineryOperational: number;
     camps: number;
-    /** Eventos adversos en vías con acciones por ejecutar o en ejecución. */
+    /** Eventos adversos en vías de los últimos 3 meses con acciones por ejecutar o en ejecución. */
     roadEventsOpen: number;
     /** Trabajos para recuperar la transitabilidad registrados. */
     recoveryWorks: number;
   };
+}
+
+/** Alerta de una parroquia: el pronóstico en su punto, clasificado con los umbrales del documento. */
+export interface ParishAlert extends ParishRain {
+  /** Código DPA de 6 dígitos (CONALI 2023). */
+  code: string;
+  name: string;
+  canton: string;
+  /** Código del cantón en `cantons`, con sus detonantes, elementos expuestos y recursos. */
+  cantonCode: string;
+  province: string;
+  kind: ParishPoint['kind'];
+  /** Punto de la parroquia [lat, lng], dentro de su territorio: ahí se lee el pronóstico. */
+  point: [number, number];
 }
 
 export interface SourceStatus {
@@ -152,9 +150,11 @@ export interface CantonAnalysisSnapshot {
   /** Ventanas del pronóstico usadas (null si la corrida no las tenía). */
   forecast12h: { from: string; to: string } | null;
   forecast24h: { from: string; to: string } | null;
-  /** Cantones por color; los sin pronóstico van aparte (`noData`), no como verdes. */
+  /** Parroquias por nivel; las sin pronóstico van aparte (`noData`), no como verdes. */
   counts: Record<Semaphore, number> & { noData: number };
-  /** Todos los cantones, del más al menos afectado. */
+  /** Todas las parroquias con pronóstico, de la más a la menos afectada (el visor elige qué niveles muestra). */
+  parishes: ParishAlert[];
+  /** Los cantones con sus detonantes, elementos expuestos y recursos (sin nivel de alerta propio), por nombre. */
   cantons: CantonAnalysis[];
   /** Tabla del documento (categorías, umbrales, nivel, consecuencias y acciones), para la leyenda. */
   bands: readonly Band[];
@@ -168,11 +168,13 @@ export interface CantonAnalysisSnapshot {
 type Counter = Map<string, number>;
 
 /**
- * Análisis por cantón con la lluvia PRONOSTICADA (WRF) de las próximas 12 y 24 h:
- * semáforo verde, amarillo o rojo con los umbrales del documento de la SNGR
- * (manda el más alto de los dos: S = máx(S12h, S24h)), y por cantón sus factores
- * detonantes, elementos expuestos, acciones preventivas y herramientas para la
- * respuesta. Es un sistema de pronóstico: la lluvia ya medida no entra.
+ * Alerta de inundación por parroquia con la lluvia PRONOSTICADA (WRF) de las
+ * próximas 12 y 24 h: el valor de la celda donde cae el punto de cada parroquia,
+ * tal cual (la lluvia intensa es puntual: no se promedia ni se toma un percentil),
+ * con los umbrales del documento de la SNGR (manda el más alto de los dos: S =
+ * máx(S12h, S24h)). Por cantón, sus factores detonantes, elementos expuestos,
+ * acciones preventivas y herramientas para la respuesta. Es un sistema de
+ * pronóstico: la lluvia ya medida no entra.
  *
  * Nota: con los umbrales del documento el WRF pinta más cantones de los que
  * después llueven (calibración del 25/10/2026 con el archivo de lluvia: 60 % en
@@ -184,10 +186,12 @@ export class CantonAnalysisService implements OnApplicationBootstrap, OnModuleDe
   private readonly logger = new Logger(CantonAnalysisService.name);
   // Los contornos no viajan en la respuesta: el visor tiene los suyos (archivo fijo) y los une por el código DPA.
   private readonly cantonsCache = new TtlCache<CantonShape[]>(24 * HOUR_MS, 1);
+  private parishes: Promise<ParishPoint[]> | null = null;
   private latest: CantonAnalysisSnapshot | null = null;
   private loading: Promise<CantonAnalysisSnapshot> | null = null;
   private refreshTimer?: NodeJS.Timeout;
   private firstRunTimer?: NodeJS.Timeout;
+  private nextStepTimer?: NodeJS.Timeout;
 
   constructor(
     private readonly rainForecast: RainForecastService,
@@ -205,6 +209,7 @@ export class CantonAnalysisService implements OnApplicationBootstrap, OnModuleDe
   onModuleDestroy(): void {
     clearTimeout(this.firstRunTimer);
     clearInterval(this.refreshTimer);
+    clearTimeout(this.nextStepTimer);
   }
 
   /** La última carga al instante; solo la primera consulta tras arrancar espera el cálculo. */
@@ -223,9 +228,25 @@ export class CantonAnalysisService implements OnApplicationBootstrap, OnModuleDe
 
   private refresh(): Promise<CantonAnalysisSnapshot> {
     this.loading ??= this.compute()
-      .then((snapshot) => (this.latest = snapshot))
+      .then((snapshot) => {
+        this.latest = snapshot;
+        this.scheduleNextStep(snapshot);
+        return snapshot;
+      })
       .finally(() => (this.loading = null));
     return this.loading;
+  }
+
+  /**
+   * Las 12 y 24 h se cuentan desde el bloque de 3 h en curso: al empezar el
+   * siguiente se recalcula, sin esperar al cálculo de cada hora.
+   */
+  private scheduleNextStep(snapshot: CantonAnalysisSnapshot): void {
+    clearTimeout(this.nextStepTimer);
+    const from = snapshot.forecast12h?.from;
+    if (!from) return;
+    const delay = Date.parse(from) + STEP_MS + NEXT_STEP_DELAY_MS - Date.now();
+    if (delay > 0) this.nextStepTimer = setTimeout(() => this.refreshInBackground(), delay);
   }
 
   private refreshInBackground(): void {
@@ -235,6 +256,8 @@ export class CantonAnalysisService implements OnApplicationBootstrap, OnModuleDe
   private async compute(): Promise<CantonAnalysisSnapshot> {
     const started = Date.now();
     const shapes = await this.cantonsCache.get('all', () => this.loadCantons());
+    this.parishes ??= loadParishes();
+    const parishPoints = await this.parishes;
     const locator = new CantonLocator(shapes);
     const sources: SourceStatus[] = [];
     /** Corre una fuente; si falla, el análisis sigue sin ella y queda anotado. */
@@ -311,6 +334,7 @@ export class CantonAnalysisService implements OnApplicationBootstrap, OnModuleDe
       }
       return counter;
     };
+    const roadEventsSince = new Date().setMonth(new Date().getMonth() - ROAD_EVENTS_MONTHS);
     const text = (feature: GeoJsonFeature, field: string) => String(feature.properties[field] ?? '').trim().toUpperCase();
 
     const riverAlerts = new Map<string, { count: number; max: number }>();
@@ -354,8 +378,11 @@ export class CantonAnalysisService implements OnApplicationBootstrap, OnModuleDe
       machinery: countPoints(l.get('machinery')),
       machineryOperational: countPoints(l.get('machinery'), (f) => text(f, 'estado').startsWith('OPERATIVA')),
       camps: countPoints(l.get('mtop-camps')),
-      roadEventsOpen: countPoints(l.get('road-adverse-events'), (f) =>
-        ['ACCIONES POR EJECUTAR', 'ACCIONES EN EJECUCIÓN'].includes(text(f, 'situaci_n_del_evento')),
+      roadEventsOpen: countPoints(
+        l.get('road-adverse-events'),
+        (f) =>
+          ['ACCIONES POR EJECUTAR', 'ACCIONES EN EJECUCIÓN'].includes(text(f, 'situaci_n_del_evento')) &&
+          Date.parse(String(f.properties.fecha_en_que_ocurri_el_evento ?? '')) >= roadEventsSince,
       ),
       recoveryWorks: countPoints(l.get('rve-recovery')),
     };
@@ -363,13 +390,7 @@ export class CantonAnalysisService implements OnApplicationBootstrap, OnModuleDe
       const value = counter.get(code) ?? 0;
       return decimals ? Math.round(value * 10 ** decimals) / 10 ** decimals : value;
     };
-    const round1 = (value: number | null) => (value === null ? null : Math.round(value * 10) / 10);
-
     const cantons: CantonAnalysis[] = shapes.map((canton) => {
-      const forecast24h = forecast ? round1(zonalP90(forecast.grid, canton)) : null;
-      const forecast12hMm = forecast12h ? round1(zonalP90(forecast12h.grid, canton)) : null;
-      const classified = classifyRain(forecast12hMm, forecast24h);
-      const band = classified?.band ?? classifyRain12h(0);
       const [west, south, east, north] = canton.bbox;
       const river = riverAlerts.get(canton.code);
       return {
@@ -378,18 +399,6 @@ export class CantonAnalysisService implements OnApplicationBootstrap, OnModuleDe
         province: canton.province,
         region: canton.region,
         center: [(south + north) / 2, (west + east) / 2],
-        semaphore: band.semaphore,
-        category: band.category,
-        categoryLabel: band.label,
-        consequences: band.consequences,
-        actions: band.actions,
-        forecast: {
-          mm12h: forecast12hMm,
-          mm24h: forecast24h,
-          category12h: forecast12hMm === null ? null : classifyRain12h(forecast12hMm).category,
-          category24h: forecast24h === null ? null : classifyRain24h(forecast24h).category,
-        },
-        decidedBy: classified?.decidedBy ?? null,
         triggers: {
           riverAlerts: river?.count ?? 0,
           riverMaxLevel: river?.max ?? 0,
@@ -427,28 +436,38 @@ export class CantonAnalysisService implements OnApplicationBootstrap, OnModuleDe
       };
     });
 
-    // Del más al menos afectado: semáforo; dentro de cada color, la lluvia que decidió el color y los ríos en alerta.
-    const decisive = (canton: CantonAnalysis) =>
-      (canton.decidedBy === '24h' ? canton.forecast.mm24h : canton.forecast.mm12h) ?? -1;
-    cantons.sort(
-      (a, b) =>
-        SEMAPHORE_RANK[b.semaphore] - SEMAPHORE_RANK[a.semaphore] ||
-        decisive(b) - decisive(a) ||
-        b.triggers.riverAlerts - a.triggers.riverAlerts,
-    );
+    cantons.sort((a, b) => a.name.localeCompare(b.name, 'es'));
 
-    this.logger.log(`Análisis por cantón listo en ${((Date.now() - started) / 1000).toFixed(1)} s`);
+    const allParishes: ParishAlert[] = parishPoints.map((parish) => ({
+      code: parish.code,
+      name: parish.name,
+      canton: parish.canton,
+      cantonCode: CANTON_CODE_ALIASES[parish.cantonCode] ?? parish.cantonCode,
+      province: parish.province,
+      kind: parish.kind,
+      point: [parish.lat, parish.lng],
+      ...parishRain(parish, forecast12h?.grid ?? null, forecast?.grid ?? null),
+    }));
+    // De la más a la menos afectada: nivel y, dentro de cada uno, la lluvia que lo decidió.
+    const decisive = (parish: ParishAlert) => (parish.decidedBy === '24h' ? parish.forecast.mm24h : parish.forecast.mm12h) ?? -1;
+    const parishes = allParishes
+      .filter((parish) => parish.decidedBy !== null)
+      .sort((a, b) => SEMAPHORE_RANK[b.semaphore] - SEMAPHORE_RANK[a.semaphore] || decisive(b) - decisive(a));
+
+    this.logger.log(`Análisis por parroquia listo en ${((Date.now() - started) / 1000).toFixed(1)} s`);
     return {
       updatedAt: new Date().toISOString(),
       forecastRun: forecast?.run ?? null,
       forecast12h: forecast12h ? { from: forecast12h.from, to: forecast12h.to } : null,
       forecast24h: forecast ? { from: forecast.from, to: forecast.to } : null,
       counts: {
-        red: cantons.filter((canton) => canton.semaphore === 'red').length,
-        yellow: cantons.filter((canton) => canton.semaphore === 'yellow').length,
-        green: cantons.filter((canton) => canton.semaphore === 'green' && canton.decidedBy !== null).length,
-        noData: cantons.filter((canton) => canton.decidedBy === null).length,
+        red: allParishes.filter((parish) => parish.semaphore === 'red').length,
+        orange: allParishes.filter((parish) => parish.semaphore === 'orange').length,
+        yellow: allParishes.filter((parish) => parish.semaphore === 'yellow').length,
+        green: allParishes.filter((parish) => parish.semaphore === 'green' && parish.decidedBy !== null).length,
+        noData: allParishes.filter((parish) => parish.decidedBy === null).length,
       },
+      parishes,
       cantons,
       bands: RAIN_BANDS,
       provinces: preparedness ?? [],

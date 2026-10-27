@@ -1,5 +1,4 @@
-import { crossingsAtLatitude, isInsideCrossings, isInsideRings, type Ring } from '../../common/geo/polygon.js';
-import type { RasterGrid } from '../../common/raster/raster-grid.js';
+import { isInsideRings, type Ring } from '../../common/geo/polygon.js';
 
 /** Cantón con su contorno listo para ubicar puntos (anillos [lng, lat] y recuadro). */
 export interface CantonShape {
@@ -52,45 +51,6 @@ export class CantonLocator {
     }
     return null;
   }
-}
-
-/**
- * Valor que representa la lluvia de la grilla en el cantón: el percentil 90 de
- * las celdas cuyo centro cae dentro. Con el promedio, un aguacero fuerte en una
- * parte de un cantón grande se diluye; con el máximo, una sola celda lo decide.
- * Si ninguna celda cae dentro (cantón más chico que una celda), la del centro.
- */
-export function zonalP90(grid: RasterGrid, canton: CantonShape): number | null {
-  const [gWest, gSouth, gEast, gNorth] = grid.bbox;
-  const cellW = (gEast - gWest) / grid.width;
-  const cellH = (gNorth - gSouth) / grid.height;
-  const [west, south, east, north] = canton.bbox;
-  const firstRow = Math.max(0, Math.floor((gNorth - north) / cellH));
-  const lastRow = Math.min(grid.height - 1, Math.ceil((gNorth - south) / cellH));
-  const firstCol = Math.max(0, Math.floor((west - gWest) / cellW));
-  const lastCol = Math.min(grid.width - 1, Math.ceil((east - gWest) / cellW));
-
-  const values: number[] = [];
-  for (let row = firstRow; row <= lastRow; row++) {
-    const lat = gNorth - (row + 0.5) * cellH;
-    const crossings = crossingsAtLatitude(canton.rings, lat);
-    if (crossings.length === 0) continue;
-    for (let col = firstCol; col <= lastCol; col++) {
-      if (!isInsideCrossings(crossings, gWest + (col + 0.5) * cellW)) continue;
-      const value = grid.values[row * grid.width + col];
-      if (Number.isFinite(value) && value !== grid.noData && value >= 0) values.push(value);
-    }
-  }
-
-  if (values.length === 0) {
-    const lng = (west + east) / 2;
-    const lat = (south + north) / 2;
-    if (lng < gWest || lng >= gEast || lat <= gSouth || lat > gNorth) return null;
-    const value = grid.values[Math.floor((gNorth - lat) / cellH) * grid.width + Math.floor((lng - gWest) / cellW)];
-    return Number.isFinite(value) && value !== grid.noData && value >= 0 ? value : null;
-  }
-  values.sort((a, b) => a - b);
-  return values[Math.min(values.length - 1, Math.floor(values.length * 0.9))];
 }
 
 /** Distancia en km entre dos puntos [lng, lat] (fórmula del haversine). */
