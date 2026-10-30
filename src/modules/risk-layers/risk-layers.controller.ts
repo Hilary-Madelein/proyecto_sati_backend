@@ -19,6 +19,12 @@ export class RiskLayersController {
     return this.layers.get(id);
   }
 
+  @Get(':id/attachments')
+  @ApiOperation({ summary: 'Fotos de todas las entidades de la capa, por id de entidad (solo las que tienen)' })
+  layerAttachments(@Param('id') id: string) {
+    return this.layers.layerAttachments(id);
+  }
+
   @Get(':id/features/:objectId/attachments')
   @ApiOperation({ summary: 'Fotos de una entidad (solo imágenes), servidas desde el servicio de origen' })
   attachments(@Param('id') id: string, @Param('objectId', ParseIntPipe) objectId: number) {

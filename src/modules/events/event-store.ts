@@ -19,6 +19,8 @@ export interface EventSummary {
   bySeverity: Record<string, number>;
   byHazardType: Record<string, number>;
   byProvince: Record<string, number>;
+  /** Eventos por día en Ecuador (AAAA-MM-DD) y severidad; solo los días con eventos. */
+  byDay: Record<string, Record<string, number>>;
   impact: { affected: number; housesAffected: number; evacuated: number; deceased: number };
 }
 

@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
+import { ECUADOR_TIME_ZONE } from '../../common/time/ecuador-time.js';
 import { HazardEventEntity } from '../../modules/events/entities/hazard-event.entity.js';
 import { EventStore, type EventChanges, type EventFilters, type EventSummary } from '../../modules/events/event-store.js';
 
@@ -48,10 +49,17 @@ export class TypeOrmEventStore extends EventStore {
       return Object.fromEntries(rows.map((row) => [row.key ?? 'Sin dato', row.count]));
     };
 
-    const [bySeverity, byHazardType, byProvince, totals] = await Promise.all([
+    const [bySeverity, byHazardType, byProvince, dayRows, totals] = await Promise.all([
       countBy('severity'),
       countBy('hazardType'),
       countBy('province'),
+      this.filteredQuery(filters)
+        .select(`to_char(event.occurredAt AT TIME ZONE '${ECUADOR_TIME_ZONE}', 'YYYY-MM-DD')`, 'day')
+        .addSelect('event.severity', 'severity')
+        .addSelect('COUNT(*)::int', 'count')
+        .groupBy('day')
+        .addGroupBy('event.severity')
+        .getRawMany<{ day: string; severity: string; count: number }>(),
       this.filteredQuery(filters)
         .select('COUNT(*)::int', 'total')
         .addSelect('COALESCE(SUM(event.affected), 0)::int', 'affected')
@@ -61,8 +69,11 @@ export class TypeOrmEventStore extends EventStore {
         .getRawOne<{ total: number; affected: number; housesAffected: number; evacuated: number; deceased: number }>(),
     ]);
 
+    const byDay: EventSummary['byDay'] = {};
+    for (const row of dayRows) (byDay[row.day] ??= {})[row.severity] = row.count;
+
     const { total = 0, ...impact } = totals ?? { affected: 0, housesAffected: 0, evacuated: 0, deceased: 0 };
-    return { total, bySeverity, byHazardType, byProvince, impact };
+    return { total, bySeverity, byHazardType, byProvince, byDay, impact };
   }
 
   private filteredQuery(filters: EventFilters) {

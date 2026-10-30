@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { Injectable, Optional } from '@nestjs/common';
+import { toEcuadorDate } from '../../common/time/ecuador-time.js';
 import { HazardEventEntity } from '../../modules/events/entities/hazard-event.entity.js';
 import { EventStore, type EventChanges, type EventFilters, type EventSummary } from '../../modules/events/event-store.js';
 import { JsonFilePersistence } from './json-file-persistence.js';
@@ -80,6 +81,7 @@ export class InMemoryEventStore extends EventStore {
       bySeverity: countBy((event) => event.severity),
       byHazardType: countBy((event) => event.hazardType),
       byProvince: countBy((event) => event.province),
+      byDay: byDay(events),
       impact: {
         affected: sum('affected'),
         housesAffected: sum('housesAffected'),
@@ -106,4 +108,14 @@ export class InMemoryEventStore extends EventStore {
       return true;
     });
   }
+}
+
+/** Eventos por día en Ecuador y severidad. */
+function byDay(events: readonly HazardEventEntity[]): EventSummary['byDay'] {
+  const days: EventSummary['byDay'] = {};
+  for (const event of events) {
+    const day = (days[toEcuadorDate(event.occurredAt)] ??= {});
+    day[event.severity] = (day[event.severity] ?? 0) + 1;
+  }
+  return days;
 }

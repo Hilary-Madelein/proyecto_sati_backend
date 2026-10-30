@@ -5,6 +5,7 @@ import { UpstreamError } from '../../common/http/upstream.error.js';
 import {
   fetchArcgisAttachments,
   fetchArcgisLayer,
+  fetchArcgisLayerAttachments,
   fetchArcgisVersion,
   type ArcgisAttachment,
   type GeoJsonFeature,
@@ -66,6 +67,8 @@ export class RiskLayersService {
   private readonly layers = new Map(RISK_LAYERS.map((layer) => [layer.id, layer]));
   private readonly entries = new Map<string, Entry>();
   private readonly loading = new Map<string, Promise<RiskLayerData>>();
+  /** Fotos de todas las entidades de cada capa, de la descarga de la capa con esa fecha (`fetchedAt`). */
+  private readonly photos = new Map<string, { fetchedAt: string; photos: Promise<Record<string, ArcgisAttachment[]>> }>();
 
   list(): RiskLayerSummary[] {
     return RISK_LAYERS.map(({ id, title, component, attribution, source }) => ({
@@ -102,6 +105,38 @@ export class RiskLayersService {
     if (layer.source.kind !== 'arcgis') return [];
     try {
       return await fetchArcgisAttachments(layer.source.layerUrl, objectId);
+    } catch (error) {
+      if (error instanceof UpstreamError) throw new BadGatewayException(error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Fotos de todas las entidades de una capa, por id de entidad (la línea de
+   * tiempo de acciones muestra una por tarjeta). Una sola consulta al servicio,
+   * guardada mientras la capa no cambie: una foto nueva cambia la fecha de
+   * edición de la capa y con eso se vuelven a pedir.
+   */
+  async layerAttachments(id: string): Promise<Record<string, ArcgisAttachment[]>> {
+    const layer = this.layers.get(id);
+    if (!layer) throw new NotFoundException(`No existe la capa "${id}"`);
+    if (layer.source.kind !== 'arcgis') return {};
+    const data = await this.get(id);
+    if (!data.hasAttachments) return {};
+
+    let cached = this.photos.get(id);
+    if (cached?.fetchedAt !== data.fetchedAt) {
+      const ids = data.features.map((feature) => Number(feature.id)).filter(Number.isInteger);
+      const pending = fetchArcgisLayerAttachments(layer.source.layerUrl, ids).then((photos) => Object.fromEntries(photos));
+      cached = { fetchedAt: data.fetchedAt, photos: pending };
+      this.photos.set(id, cached);
+      // Si falla, el próximo pedido vuelve a intentar.
+      pending.catch(() => {
+        if (this.photos.get(id)?.photos === pending) this.photos.delete(id);
+      });
+    }
+    try {
+      return await cached.photos;
     } catch (error) {
       if (error instanceof UpstreamError) throw new BadGatewayException(error.message);
       throw error;
