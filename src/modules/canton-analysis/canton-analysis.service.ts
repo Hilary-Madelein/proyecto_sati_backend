@@ -29,6 +29,7 @@ import {
   type ProvinceResources,
 } from './preparedness.js';
 import { RISK_LAYERS } from '../risk-layers/risk-layers.catalog.js';
+import { isPreventiveAction } from '../risk-layers/mit-actions.js';
 import { RAIN_BANDS, SEMAPHORE_RANK, type Band, type Semaphore } from './rain-thresholds.js';
 
 const MINUTE_MS = 60 * 1000;
@@ -114,8 +115,8 @@ export interface CantonAnalysis {
   response: {
     shelters: number;
     sheltersActive: number;
-    machinery: number;
-    machineryOperational: number;
+    /** Maquinaria pesada del MIT en la provincia del cantón (el inventario es por provincia). */
+    provinceMachinery: number;
     camps: number;
     /** Eventos adversos en vías de los últimos 3 meses con acciones por ejecutar o en ejecución. */
     roadEventsOpen: number;
@@ -370,13 +371,15 @@ export class CantonAnalysisService implements OnApplicationBootstrap, OnModuleDe
       bridgesBad: countPoints(l.get('bridges'), (f) => ['MALO', 'COLAPSADO'].includes(text(f, 'ESTADO'))),
       floodTowns: countPoints(l.get('flood-prone-towns')),
       // Realizadas: las que ya empezaron (no las planificadas).
-      actions: countPoints(l.get('rve-preventive-works'), (f) => Date.parse(String(f.properties.fecha_de_inicio ?? '')) <= Date.now()),
+      // Preventivas ya iniciadas (la capa también puede traer acciones de respuesta).
+      actions: countPoints(
+        l.get('rve-preventive-works'),
+        (f) => isPreventiveAction(f.properties.tip_activid) && Date.parse(String(f.properties.fecha_inicio ?? '')) <= Date.now(),
+      ),
       enosWorksActive: countPoints(l.get('el-nino-road-projects'), (f) => text(f, 'Estado_actual') === 'EN EJECUCIÓN'),
       culverts: countPoints(l.get('culverts-zone7')),
       shelters: countPoints(l.get('shelters')),
       sheltersActive: countPoints(l.get('shelters'), (f) => text(f, 'ESTADO') === 'ACTIVO'),
-      machinery: countPoints(l.get('machinery')),
-      machineryOperational: countPoints(l.get('machinery'), (f) => text(f, 'estado').startsWith('OPERATIVA')),
       camps: countPoints(l.get('mtop-camps')),
       roadEventsOpen: countPoints(
         l.get('road-adverse-events'),
@@ -386,6 +389,13 @@ export class CantonAnalysisService implements OnApplicationBootstrap, OnModuleDe
       ),
       recoveryWorks: countPoints(l.get('rve-recovery')),
     };
+    // El inventario de maquinaria pone todos los equipos de una provincia en un mismo punto: se cuenta por la provincia que declara.
+    const provinceCodes = new Map(shapes.map((canton) => [normalizeText(canton.province), canton.provinceCode]));
+    const machineryByProvince: Counter = new Map();
+    for (const { properties } of l.get('machinery-by-province') ?? []) {
+      const code = provinceCodeOf(properties.DPA_DESPRO, provinceCodes);
+      if (code) machineryByProvince.set(code, (machineryByProvince.get(code) ?? 0) + 1);
+    }
     const get = (counter: Counter, code: string, decimals = 0) => {
       const value = counter.get(code) ?? 0;
       return decimals ? Math.round(value * 10 ** decimals) / 10 ** decimals : value;
@@ -427,8 +437,7 @@ export class CantonAnalysisService implements OnApplicationBootstrap, OnModuleDe
         response: {
           shelters: get(counts.shelters, canton.code),
           sheltersActive: get(counts.sheltersActive, canton.code),
-          machinery: get(counts.machinery, canton.code),
-          machineryOperational: get(counts.machineryOperational, canton.code),
+          provinceMachinery: get(machineryByProvince, canton.provinceCode),
           camps: get(counts.camps, canton.code),
           roadEventsOpen: get(counts.roadEventsOpen, canton.code),
           recoveryWorks: get(counts.recoveryWorks, canton.code),
@@ -541,8 +550,8 @@ export class CantonAnalysisService implements OnApplicationBootstrap, OnModuleDe
     };
     const [shelters, camps, actions, works, roads, officialAreas] = await Promise.all([
       records('shelters', ['PROVINCIA']),
-      records('mtop-camps', ['provincia']),
-      records('rve-preventive-works', ['provincia', 'fecha_de_inicio']),
+      records('mtop-camps', ['DPA_DESPRO']),
+      records('rve-preventive-works', ['despro', 'fecha_inicio', 'tip_activid']),
       // Con trazado: así se reconoce la misma obra cargada dos veces.
       records(
         'el-nino-road-projects',
@@ -567,9 +576,11 @@ export class CantonAnalysisService implements OnApplicationBootstrap, OnModuleDe
       else unassigned += 1;
     };
     for (const { properties } of shelters) add('shelters', properties.PROVINCIA);
-    for (const { properties } of camps) add('camps', properties.provincia);
+    for (const { properties } of camps) add('camps', properties.DPA_DESPRO);
     for (const { properties } of actions) {
-      if (Date.parse(String(properties.fecha_de_inicio ?? '')) <= Date.now()) add('preventiveActions', properties.provincia);
+      if (isPreventiveAction(properties.tip_activid) && Date.parse(String(properties.fecha_inicio ?? '')) <= Date.now()) {
+        add('preventiveActions', properties.despro);
+      }
     }
     const categories = classifyRoadProjects(works);
     works.forEach(({ properties }, i) => {
@@ -601,7 +612,7 @@ export class CantonAnalysisService implements OnApplicationBootstrap, OnModuleDe
       'el-nino-road-projects',
       'culverts-zone7',
       'shelters',
-      'machinery',
+      'machinery-by-province',
       'mtop-camps',
       'road-adverse-events',
       'rve-recovery',

@@ -12,7 +12,13 @@ export interface ArcgisRiskLayerSource {
   fields: readonly string[];
   /** Tolerancia de simplificación en grados para líneas y polígonos (~0,0005 = 55 m). */
   maxAllowableOffset?: number;
-  /** Cada cuánto se vuelve a consultar el servicio. */
+  /** Entregar los campos con dominio con su nombre en vez del código. */
+  decodeDomains?: boolean;
+  /**
+   * Cada cuánto se vuelve a descargar si el servicio no informa la fecha de su
+   * última edición. Si la informa (lo normal en ArcGIS Online), se descarga cada
+   * vez que cambia, sin esperar este plazo.
+   */
   refreshMinutes: number;
 }
 
@@ -32,6 +38,16 @@ export interface RiskLayerDefinition {
   source: ArcgisRiskLayerSource | FileRiskLayerSource;
   /** Campos que calcula el backend sobre las entidades descargadas (p. ej. si una obra cuenta en el índice de preparación). */
   annotate?: (features: GeoJsonFeature[]) => GeoJsonFeature[];
+  /**
+   * Agrega a cada punto `Via_RVE`, el código de su vía: el que declara la propia
+   * capa en `declaredField` (p. ej. "E 487" → "E487"), o si no lo trae, el de la
+   * vía de la RVE más cercana a menos de 1 km (null si no hay).
+   */
+  nearestRoad?: {
+    declaredField?: string;
+    /** Campo "¿está en la RVE?": si dice "No", el punto no lleva vía (no se busca la más cercana). */
+    onRoadField?: string;
+  };
 }
 
 export interface RiskLayerSummary {

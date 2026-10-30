@@ -1,10 +1,13 @@
 import { annotateRoadProjects } from '../canton-analysis/preparedness.js';
+import { annotatePreventiveActions, annotateResponseActions } from './mit-actions.js';
 import type { RiskLayerDefinition } from './risk-layer.js';
 
 const SNGR_AGOL = 'https://services8.arcgis.com/csQLKpeoUQumugVg/arcgis/rest/services';
 /** Ministerio de Infraestructura y Transporte (MIT, antes MTOP). */
 const MIT_AGOL = 'https://services6.arcgis.com/7VeuPjsMUY1CwfEq/arcgis/rest/services';
 
+// Plazos para volver a descargar una capa cuyo servicio no informa su última edición
+// (las que sí la informan se descargan apenas cambian; ver RiskLayersService).
 /** Encuestas que se llenan en campo (Survey123): cambian a diario. */
 const SURVEY_REFRESH = 15;
 /** Capas de referencia que casi no cambian. */
@@ -50,6 +53,7 @@ export const RISK_LAYERS: readonly RiskLayerDefinition[] = [
       fields: ['Nomenclatura', 'Ubicación', 'Tipo_de_amenaza', 'Zonal', 'DPA_DESPRO'],
       refreshMinutes: STATIC_REFRESH,
     },
+    nearestRoad: { declaredField: 'Ubicación' },
   },
 
   // ── Exposición ───────────────────────────────────────────────────────────
@@ -110,6 +114,7 @@ export const RISK_LAYERS: readonly RiskLayerDefinition[] = [
       ],
       refreshMinutes: STATIC_REFRESH,
     },
+    nearestRoad: { declaredField: 'EJE_VIAL' },
   },
   {
     id: 'flood-prone-towns',
@@ -214,34 +219,16 @@ export const RISK_LAYERS: readonly RiskLayerDefinition[] = [
 
   // ── Preparación ──────────────────────────────────────────────────────────
   {
-    id: 'machinery',
-    title: 'Maquinaria distribuida a nivel nacional',
+    id: 'machinery-by-province',
+    title: 'Maquinaria pesada por provincia',
     component: 'preparacion',
-    attribution: 'MIT · DCOIT',
+    attribution: 'MIT',
     source: {
       kind: 'arcgis',
-      layerUrl: `${MIT_AGOL}/survey123_0ebc12395a634690be3d59498aa6cffd/FeatureServer/0`,
-      // Sin registro, chasis, motor ni nombre del operador.
-      fields: [
-        'tipo_de_maquinaria_y_veh_culo',
-        'estado',
-        'provincia',
-        'provincia_donde_opera',
-        'marca',
-        'modelo',
-        'a_o',
-        'descripci_n_de_falla',
-        'descripci_n_de_fallas_cr_ticas',
-        'tiempo_estimado_de_reparaci_n_d',
-        'hor_metro',
-        'kilometraje_actual',
-        'posee_matr_cula_institucional',
-        'posee_seguro_vigente',
-        'zonal',
-        'fecha',
-        'EditDate',
-      ],
-      refreshMinutes: SURVEY_REFRESH,
+      // Inventario del MIT (octubre 2026): cada equipo en el punto de su provincia. Sin Join_Count ni TARGET_FID (de la unión de capas).
+      layerUrl: `${SNGR_AGOL}/Maquinaria_por_provincia/FeatureServer/0`,
+      fields: ['TIPO', 'MARCA', 'MODELO', 'AÑO', 'REGISTRO', 'CHASIS', 'MOTOR', 'DPA_DESPRO', 'ZONAL'],
+      refreshMinutes: STATIC_REFRESH,
     },
   },
   {
@@ -263,10 +250,14 @@ export const RISK_LAYERS: readonly RiskLayerDefinition[] = [
     attribution: 'MIT',
     source: {
       kind: 'arcgis',
-      layerUrl: `${MIT_AGOL}/survey123_2ffc3d517efa48679de2f5849b18a6d4/FeatureServer/0`,
-      fields: ['provincia', 'EditDate'],
+      // Versión de la SNGR (Campamentos_MIT_02, octubre 2026); la clave catastral queda fuera.
+      layerUrl: `${SNGR_AGOL}/Campamentos_MIT_02/FeatureServer/86`,
+      fields: ['Zonal', 'DPA_DESPRO', 'DPA_DESCAN', 'ESTADO'],
+      // ESTADO llega como código ("01"): se entrega con su nombre (OPERATIVO, INACTIVO, MANTENIMIENTO).
+      decodeDomains: true,
       refreshMinutes: SURVEY_REFRESH,
     },
+    nearestRoad: {},
   },
   {
     id: 'rve-preventive-works',
@@ -275,18 +266,35 @@ export const RISK_LAYERS: readonly RiskLayerDefinition[] = [
     attribution: 'MIT',
     source: {
       kind: 'arcgis',
-      layerUrl: `${SNGR_AGOL}/survey123_fc77ead53fa54d599f807ce51f415fbc/FeatureServer/0`,
+      // Vista de la SNGR (octubre 2026): acciones preventivas y de respuesta del MIT, con fotos.
+      layerUrl: `${SNGR_AGOL}/Acciones_Preventivas_-_MIT_(vista)/FeatureServer/0`,
       fields: [
-        'descripci_n_de_la_acci_n_preven',
-        'provincia',
-        'cant_n',
-        'fecha_de_inicio',
+        'tip_activid',
+        'actividad_prev',
+        'otra_act_prev',
+        'det_prev',
+        'fecha_inicio',
         'fecha_fin',
-        'maquinaria',
-        'instituciones_involucradas',
+        'maq_preventi',
+        'otra_maq_prev',
+        'insti_preventi',
+        'otra_insti_prev',
+        'persnl_tecnico',
+        'persnl_microempresas',
+        'persnl_operd_maq',
+        'es_rve',
+        'cod_search',
+        'nombre_via',
+        'descanto',
+        'despro',
+        'zonal_2',
+        'EditDate',
       ],
+      decodeDomains: true,
       refreshMinutes: SURVEY_REFRESH,
     },
+    annotate: annotatePreventiveActions,
+    nearestRoad: { declaredField: 'cod_search', onRoadField: 'es_rve' },
   },
   {
     id: 'el-nino-road-projects',
@@ -357,6 +365,7 @@ export const RISK_LAYERS: readonly RiskLayerDefinition[] = [
       ],
       refreshMinutes: SURVEY_REFRESH,
     },
+    nearestRoad: {},
   },
   {
     id: 'rve-recovery',
@@ -378,6 +387,48 @@ export const RISK_LAYERS: readonly RiskLayerDefinition[] = [
       ],
       refreshMinutes: SURVEY_REFRESH,
     },
+    nearestRoad: {},
+  },
+  {
+    id: 'mit-response-actions',
+    title: 'Acciones de respuesta',
+    component: 'respuesta',
+    attribution: 'MIT',
+    source: {
+      kind: 'arcgis',
+      // Vista de la SNGR (octubre 2026): acciones de respuesta y de recuperación de la transitabilidad del MIT, con fotos.
+      layerUrl: `${SNGR_AGOL}/Acciones_de_Respuesta_-_MIT_(vista)/FeatureServer/0`,
+      fields: [
+        'tip_activid',
+        'evento',
+        'otro_tip_event',
+        'actividad_respt',
+        'otra_act_respt',
+        'fecha_inicio',
+        'fecha_fin',
+        'origen_maq_respt',
+        'otra_entidad',
+        'maq_respt_mit',
+        'otra_maq_respt_mit',
+        'maq_respt_otra_entidad',
+        'otra_maq_respt_otra_entid',
+        'total_maquinaria_respt',
+        'persnl_tecnico',
+        'persnl_microempresas',
+        'persnl_operd_maq',
+        'es_rve',
+        'cod_search',
+        'nombre_via',
+        'descanto',
+        'despro',
+        'zonal_2',
+        'EditDate',
+      ],
+      decodeDomains: true,
+      refreshMinutes: SURVEY_REFRESH,
+    },
+    annotate: annotateResponseActions,
+    nearestRoad: { declaredField: 'cod_search', onRoadField: 'es_rve' },
   },
   {
     id: 'deployed-road-equipment',
@@ -390,5 +441,38 @@ export const RISK_LAYERS: readonly RiskLayerDefinition[] = [
       fields: ['Tipo_maquinaria', 'DPA_DESCAN', 'DPA_DESPRO'],
       refreshMinutes: SURVEY_REFRESH,
     },
+    nearestRoad: {},
+  },
+  {
+    id: 'machinery',
+    title: 'Maquinaria distribuida a nivel nacional',
+    component: 'respuesta',
+    attribution: 'MIT · DCOIT',
+    source: {
+      kind: 'arcgis',
+      layerUrl: `${MIT_AGOL}/survey123_0ebc12395a634690be3d59498aa6cffd/FeatureServer/0`,
+      // Sin registro, chasis, motor ni nombre del operador.
+      fields: [
+        'tipo_de_maquinaria_y_veh_culo',
+        'estado',
+        'provincia',
+        'provincia_donde_opera',
+        'marca',
+        'modelo',
+        'a_o',
+        'descripci_n_de_falla',
+        'descripci_n_de_fallas_cr_ticas',
+        'tiempo_estimado_de_reparaci_n_d',
+        'hor_metro',
+        'kilometraje_actual',
+        'posee_matr_cula_institucional',
+        'posee_seguro_vigente',
+        'zonal',
+        'fecha',
+        'EditDate',
+      ],
+      refreshMinutes: SURVEY_REFRESH,
+    },
+    nearestRoad: {},
   },
 ];

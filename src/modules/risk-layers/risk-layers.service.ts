@@ -5,13 +5,20 @@ import { UpstreamError } from '../../common/http/upstream.error.js';
 import {
   fetchArcgisAttachments,
   fetchArcgisLayer,
+  fetchArcgisVersion,
   type ArcgisAttachment,
   type GeoJsonFeature,
 } from '../../integrations/arcgis/arcgis-feature-layer.js';
 import type { RiskLayerDefinition, RiskLayerSummary } from './risk-layer.js';
 import { RISK_LAYERS } from './risk-layers.catalog.js';
+import { nearestRoadFinder, roadCodeOf } from './nearest-road.js';
 
 const MINUTE_MS = 60 * 1000;
+/** Cada cuánto se pregunta al servicio si la capa cambió (como mucho; solo cuando alguien la pide). */
+const CHECK_MS = MINUTE_MS;
+/** Red Vial Estatal y su campo con el código de la vía, para la vía más cercana a los puntos. */
+const RVE_LAYER_ID = 'rve';
+const RVE_CODE_FIELD = 'CODIGO_DE_VIA';
 /** Carpeta de los GeoJSON propios, relativa a la raíz del proyecto (donde se ejecuta el servidor). */
 const FILES_DIR = join(process.cwd(), 'assets', 'risk-layers');
 /** Ecuador con Galápagos: las entidades fuera de este recuadro tienen coordenadas mal cargadas. */
@@ -37,12 +44,20 @@ export interface RiskLayerData {
 
 interface Entry {
   data: RiskLayerData;
-  expiresAt: number;
+  /** Versión de la capa en el servicio cuando se descargó; null si no la informa. */
+  version: number | null;
+  /** Cuándo se descargó y cuándo se comprobó por última vez que sigue igual (ms). */
+  loadedAt: number;
+  checkedAt: number;
 }
 
 /**
  * Capas de amenaza, exposición, preparación y respuesta. Cada una se descarga
- * recién cuando alguien la pide y se guarda en memoria; si el servicio de origen
+ * recién cuando alguien la pide y se guarda en memoria. Mientras se siga
+ * pidiendo, cada CHECK_MS se pregunta al servicio la versión de la capa (la
+ * fecha de su última edición) y se vuelve a descargar solo si cambió: un estado
+ * editado en ArcGIS se ve en uno o dos minutos. Si el servicio no informa la
+ * versión, se vuelve a descargar cada `refreshMinutes`. Si el servicio de origen
  * falla, se sigue entregando la última descarga buena.
  */
 @Injectable()
@@ -67,9 +82,9 @@ export class RiskLayersService {
     if (!layer) throw new NotFoundException(`No existe la capa "${id}"`);
 
     const entry = this.entries.get(id);
-    if (entry && entry.expiresAt > Date.now()) return entry.data;
+    if (entry && Date.now() - entry.checkedAt < CHECK_MS) return entry.data;
     try {
-      return await this.load(layer);
+      return await this.refresh(layer, entry);
     } catch (error) {
       if (entry) {
         this.logger.warn(`Capa "${id}": se entrega la descarga anterior (${(error as Error).message})`);
@@ -93,36 +108,73 @@ export class RiskLayersService {
     }
   }
 
-  /** Una sola descarga por capa a la vez: los pedidos simultáneos esperan la misma. */
-  private load(layer: RiskLayerDefinition): Promise<RiskLayerData> {
+  /** Una sola actualización por capa a la vez: los pedidos simultáneos esperan la misma. */
+  private refresh(layer: RiskLayerDefinition, entry: Entry | undefined): Promise<RiskLayerData> {
     let pending = this.loading.get(layer.id);
     if (!pending) {
-      pending = this.fetch(layer)
-        .then((data) => {
-          const ttl = layer.source.kind === 'arcgis' ? layer.source.refreshMinutes * MINUTE_MS : Infinity;
-          this.entries.set(layer.id, { data, expiresAt: Date.now() + ttl });
-          return data;
-        })
-        .finally(() => this.loading.delete(layer.id));
+      pending = this.update(layer, entry).finally(() => this.loading.delete(layer.id));
       this.loading.set(layer.id, pending);
     }
     return pending;
   }
 
-  private async fetch(layer: RiskLayerDefinition): Promise<RiskLayerData> {
+  /** La capa guardada si sigue igual en el servicio; si cambió (o no se puede saber y ya venció), la descarga de nuevo. */
+  private async update(layer: RiskLayerDefinition, entry: Entry | undefined): Promise<RiskLayerData> {
+    if (entry && (await this.unchanged(layer, entry))) {
+      entry.checkedAt = Date.now();
+      return entry.data;
+    }
+    const { data, version } = await this.fetch(layer);
+    const now = Date.now();
+    this.entries.set(layer.id, { data, version, loadedAt: now, checkedAt: now });
+    return data;
+  }
+
+  private async unchanged(layer: RiskLayerDefinition, entry: Entry): Promise<boolean> {
+    // Los archivos propios solo cambian con un nuevo despliegue.
+    if (layer.source.kind === 'file') return true;
+    if (entry.version === null) return Date.now() - entry.loadedAt < layer.source.refreshMinutes * MINUTE_MS;
+    return (await fetchArcgisVersion(layer.source.layerUrl)) === entry.version;
+  }
+
+  private async fetch(layer: RiskLayerDefinition): Promise<{ data: RiskLayerData; version: number | null }> {
     const base = { id: layer.id, title: layer.title, attribution: layer.attribution, isStale: false, type: 'FeatureCollection' as const };
     const fetchedAt = new Date().toISOString();
 
     if (layer.source.kind === 'file') {
       const json = JSON.parse(await readFile(join(FILES_DIR, layer.source.file), 'utf8')) as { features: GeoJsonFeature[] };
-      return { ...base, fetchedAt, sourceUpdatedAt: null, hasAttachments: false, ...located(json.features) };
+      return { data: { ...base, fetchedAt, sourceUpdatedAt: null, hasAttachments: false, ...located(json.features) }, version: null };
     }
 
     const started = Date.now();
-    const { features, lastEditDate, hasAttachments } = await fetchArcgisLayer(layer.source.layerUrl, layer.source);
+    const { features, lastEditDate, version, hasAttachments } = await fetchArcgisLayer(layer.source.layerUrl, layer.source);
     this.logger.log(`Capa "${layer.id}": ${features.length} entidades en ${((Date.now() - started) / 1000).toFixed(1)} s`);
     const annotated = layer.annotate ? layer.annotate(features) : features;
-    return { ...base, fetchedAt, sourceUpdatedAt: lastEditDate, hasAttachments, ...located(annotated) };
+    const data = { ...base, fetchedAt, sourceUpdatedAt: lastEditDate, hasAttachments, ...located(await this.withNearestRoad(layer, annotated)) };
+    return { data, version };
+  }
+
+  /**
+   * Código de la vía de cada punto: el que declara la capa o, si no lo trae, el de
+   * la vía de la RVE más cercana. Si la RVE no se puede cargar, solo el declarado.
+   */
+  private async withNearestRoad(layer: RiskLayerDefinition, features: GeoJsonFeature[]): Promise<GeoJsonFeature[]> {
+    if (!layer.nearestRoad) return features;
+    const { declaredField, onRoadField } = layer.nearestRoad;
+    const roads = await this.get(RVE_LAYER_ID).catch((error: unknown) => {
+      this.logger.warn(`Capa "${layer.id}": sin vía más cercana (${(error as Error).message})`);
+      return null;
+    });
+    const nearest = roads ? nearestRoadFinder(roads.features, RVE_CODE_FIELD) : null;
+    return features.map((feature) => {
+      const declared = declaredField ? roadCodeOf(feature.properties[declaredField]) : null;
+      if (!declared && onRoadField && String(feature.properties[onRoadField] ?? '').trim().toUpperCase() === 'NO') {
+        return { ...feature, properties: { ...feature.properties, Via_RVE: null } };
+      }
+      const point = feature.geometry?.type === 'Point' ? firstPosition(feature.geometry.coordinates) : null;
+      const code = declared ?? (point && nearest ? nearest(point[0], point[1]) : null);
+      return { ...feature, properties: { ...feature.properties, Via_RVE: code } };
+    });
   }
 }
 

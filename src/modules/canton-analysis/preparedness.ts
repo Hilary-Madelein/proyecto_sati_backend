@@ -169,10 +169,9 @@ export function sameDescription(a: string, b: string): boolean {
 export type RoadProjectCategory = 'counted' | 'not-contracted' | 'not-road' | 'repeated';
 
 /** Valor de `Estado_indice` de las obras que no cuentan (el mapa las dibuja punteadas). */
-export const ROAD_PROJECT_LABELS: Record<Exclude<RoadProjectCategory, 'counted'>, string> = {
+export const ROAD_PROJECT_LABELS: Record<Exclude<RoadProjectCategory, 'counted' | 'repeated'>, string> = {
   'not-contracted': 'Por contratar',
   'not-road': 'Obra no vial',
-  repeated: 'Registro repetido',
 };
 
 /** Cuántos de los datos del contrato trae un registro: entre registros repetidos queda el más completo. */
@@ -221,19 +220,23 @@ export function classifyRoadProjects(features: readonly GeoJsonFeature[]): RoadP
 
 /**
  * Agrega a cada obra `Estado_indice`: su estado si cuenta en el índice de
- * preparación, o el motivo por el que no (ROAD_PROJECT_LABELS). Así el mapa
- * muestra las mismas obras que cuenta el índice.
+ * preparación, o el motivo por el que no (ROAD_PROJECT_LABELS), y quita los
+ * registros repetidos. Así el mapa muestra las mismas obras que cuenta el índice.
  */
 export function annotateRoadProjects(features: GeoJsonFeature[]): GeoJsonFeature[] {
   const categories = classifyRoadProjects(features);
-  return features.map((feature, i) => {
+  return features.flatMap((feature, i) => {
     const category = categories[i];
-    return {
-      ...feature,
-      properties: {
-        ...feature.properties,
-        Estado_indice: category === 'counted' ? feature.properties.Estado_actual : ROAD_PROJECT_LABELS[category],
+    // Los registros repetidos no se entregan: el mapa muestra cada obra una sola vez.
+    if (category === 'repeated') return [];
+    return [
+      {
+        ...feature,
+        properties: {
+          ...feature.properties,
+          Estado_indice: category === 'counted' ? feature.properties.Estado_actual : ROAD_PROJECT_LABELS[category],
+        },
       },
-    };
+    ];
   });
 }
