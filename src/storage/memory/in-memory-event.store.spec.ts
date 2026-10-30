@@ -54,20 +54,26 @@ describe('InMemoryEventStore', () => {
     expect((await store.list(window, { limit: 1, offset: 1 })).items[0].externalId).toBe('b');
   });
 
-  it('resume por severidad, tipo y provincia, y suma el impacto', async () => {
+  it('resume por severidad, tipo, provincia y día de Ecuador, y suma el impacto', async () => {
     const store = new InMemoryEventStore();
     await store.save({
-      upserts: [makeEvent({ externalId: 'a' }), makeEvent({ externalId: 'b', severity: 'high', province: null, deceased: 1 })],
+      upserts: [
+        makeEvent({ externalId: 'a' }),
+        makeEvent({ externalId: 'b', severity: 'high', province: null, deceased: 1 }),
+        // 23:30 en Ecuador del 1 de octubre (04:30 UTC del 2): cuenta en el día 1.
+        makeEvent({ externalId: 'c', occurredAt: new Date('2026-10-02T04:30:00Z') }),
+      ],
       seenIds: [],
       seenAt: new Date(),
     });
 
     expect(await store.summary(window)).toEqual({
-      total: 2,
-      bySeverity: { moderate: 1, high: 1 },
-      byHazardType: { flood: 2 },
-      byProvince: { 'Los Ríos': 1, 'Sin dato': 1 },
-      impact: { affected: 20, housesAffected: 4, evacuated: 0, deceased: 1 },
+      total: 3,
+      bySeverity: { moderate: 2, high: 1 },
+      byHazardType: { flood: 3 },
+      byProvince: { 'Los Ríos': 2, 'Sin dato': 1 },
+      byDay: { '2026-10-01': { moderate: 1 }, '2026-10-02': { moderate: 1, high: 1 } },
+      impact: { affected: 30, housesAffected: 6, evacuated: 0, deceased: 1 },
     });
   });
 });

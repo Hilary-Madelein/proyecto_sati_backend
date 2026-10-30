@@ -3,6 +3,8 @@
  * fuentes nacionales entregan fechas y horas locales sin zona horaria.
  */
 export const ECUADOR_UTC_OFFSET = '-05:00';
+/** Zona horaria de Ecuador continental (para PostgreSQL: con '-05:00', AT TIME ZONE invierte el signo). */
+export const ECUADOR_TIME_ZONE = 'America/Guayaquil';
 const ECUADOR_OFFSET_MS = -5 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 

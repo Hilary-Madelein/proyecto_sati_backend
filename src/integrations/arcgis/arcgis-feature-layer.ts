@@ -159,6 +159,32 @@ export async function fetchArcgisAttachments(layerUrl: string, objectId: number)
     .map((item) => ({ id: item.id, name: item.name, url: `${base}/${item.id}` }));
 }
 
+/** Entidades por consulta de fotos (la lista de ids va en la URL). */
+const ATTACHMENTS_BATCH = 200;
+
+/**
+ * Fotos de muchas entidades de una capa con pocas consultas (queryAttachments,
+ * de a ATTACHMENTS_BATCH entidades), por OBJECTID. Solo imágenes; las entidades
+ * sin fotos no aparecen.
+ */
+export async function fetchArcgisLayerAttachments(layerUrl: string, objectIds: readonly number[]): Promise<Map<number, ArcgisAttachment[]>> {
+  const photos = new Map<number, ArcgisAttachment[]>();
+  for (let start = 0; start < objectIds.length; start += ATTACHMENTS_BATCH) {
+    const data = await getJson<{
+      attachmentGroups?: Array<{ parentObjectId: number; attachmentInfos?: Array<{ id: number; name: string; contentType?: string }> }>;
+      error?: { message?: string; details?: string[] };
+    }>(`${layerUrl}/queryAttachments`, { objectIds: objectIds.slice(start, start + ATTACHMENTS_BATCH).join(','), f: 'json' });
+    if (data.error) throw new UpstreamError(SERVICE, `no entregó los adjuntos (${errorText(data.error)})`);
+    for (const group of data.attachmentGroups ?? []) {
+      const images = (group.attachmentInfos ?? [])
+        .filter((item) => (item.contentType ?? '').startsWith('image/'))
+        .map((item) => ({ id: item.id, name: item.name, url: `${layerUrl}/${group.parentObjectId}/attachments/${item.id}` }));
+      if (images.length > 0) photos.set(group.parentObjectId, images);
+    }
+  }
+  return photos;
+}
+
 /** Deja solo los campos pedidos, sin textos vacíos, y con las fechas en ISO 8601. */
 export function toFeature(
   feature: GeoJsonFeature,

@@ -1,10 +1,11 @@
-import { fetchArcgisLayer, fetchArcgisVersion } from '../../integrations/arcgis/arcgis-feature-layer.js';
+import { fetchArcgisLayer, fetchArcgisLayerAttachments, fetchArcgisVersion } from '../../integrations/arcgis/arcgis-feature-layer.js';
 import { located, RiskLayersService } from './risk-layers.service.js';
 
 vi.mock('../../integrations/arcgis/arcgis-feature-layer.js', () => ({
   fetchArcgisLayer: vi.fn(),
   fetchArcgisVersion: vi.fn(),
   fetchArcgisAttachments: vi.fn(),
+  fetchArcgisLayerAttachments: vi.fn(),
 }));
 
 describe('located', () => {
@@ -92,5 +93,46 @@ describe('RiskLayersService: actualización de las capas', () => {
     const data = await service.get(LAYER);
     expect(data.isStale).toBe(true);
     expect(data.features).toHaveLength(1);
+  });
+});
+
+describe('RiskLayersService: fotos de toda la capa', () => {
+  const download = vi.mocked(fetchArcgisLayer);
+  const version = vi.mocked(fetchArcgisVersion);
+  const photos = vi.mocked(fetchArcgisLayerAttachments);
+  const point = (id: number) => ({ type: 'Feature' as const, id, geometry: { type: 'Point', coordinates: [-79.2, -3.9] }, properties: {} });
+  const LAYER = 'shelters';
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    download.mockReset().mockResolvedValue({ features: [point(7), point(8)], lastEditDate: null, version: 1, hasAttachments: true });
+    version.mockReset().mockResolvedValue(1);
+    photos.mockReset().mockResolvedValue(new Map([[7, [{ id: 6, name: 'a.jpg', url: 'https://x/7/attachments/6' }]]]));
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it('las pide una vez para todas las entidades y las guarda mientras la capa no cambie', async () => {
+    const service = new RiskLayersService();
+    expect(await service.layerAttachments(LAYER)).toEqual({ 7: [{ id: 6, name: 'a.jpg', url: 'https://x/7/attachments/6' }] });
+    expect(photos).toHaveBeenCalledWith(expect.any(String), [7, 8]);
+    vi.advanceTimersByTime(61_000);
+    await service.layerAttachments(LAYER);
+    expect(photos).toHaveBeenCalledTimes(1);
+  });
+
+  it('las vuelve a pedir cuando la capa cambia (p. ej. subieron una foto)', async () => {
+    const service = new RiskLayersService();
+    await service.layerAttachments(LAYER);
+    version.mockResolvedValue(2);
+    download.mockResolvedValue({ features: [point(7), point(8)], lastEditDate: null, version: 2, hasAttachments: true });
+    vi.advanceTimersByTime(61_000);
+    await service.layerAttachments(LAYER);
+    expect(photos).toHaveBeenCalledTimes(2);
+  });
+
+  it('si la capa no tiene adjuntos no consulta el servicio', async () => {
+    download.mockResolvedValue({ features: [point(7)], lastEditDate: null, version: 1, hasAttachments: false });
+    expect(await new RiskLayersService().layerAttachments(LAYER)).toEqual({});
+    expect(photos).not.toHaveBeenCalled();
   });
 });
