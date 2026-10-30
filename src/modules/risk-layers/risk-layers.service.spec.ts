@@ -1,4 +1,11 @@
-import { located } from './risk-layers.service.js';
+import { fetchArcgisLayer, fetchArcgisVersion } from '../../integrations/arcgis/arcgis-feature-layer.js';
+import { located, RiskLayersService } from './risk-layers.service.js';
+
+vi.mock('../../integrations/arcgis/arcgis-feature-layer.js', () => ({
+  fetchArcgisLayer: vi.fn(),
+  fetchArcgisVersion: vi.fn(),
+  fetchArcgisAttachments: vi.fn(),
+}));
 
 describe('located', () => {
   const point = (coordinates: unknown) => ({ type: 'Feature' as const, geometry: { type: 'Point', coordinates }, properties: {} });
@@ -18,5 +25,72 @@ describe('located', () => {
   it('mira el primer vértice de líneas y polígonos', () => {
     const line = { type: 'Feature' as const, geometry: { type: 'MultiLineString', coordinates: [[[-80, -2], [-79.9, -2.1]]] }, properties: {} };
     expect(located([line]).omitted).toBe(0);
+  });
+});
+
+describe('RiskLayersService: actualización de las capas', () => {
+  const download = vi.mocked(fetchArcgisLayer);
+  const version = vi.mocked(fetchArcgisVersion);
+  const camp = (estado: string) => ({ type: 'Feature' as const, geometry: { type: 'Point', coordinates: [-79.2, -3.9] }, properties: { ESTADO: estado } });
+  // Una capa sin vía más cercana ni campos calculados: solo se prueba cuándo se descarga.
+  const LAYER = 'shelters';
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    download.mockReset().mockResolvedValue({ features: [camp('INACTIVO')], lastEditDate: null, version: 1, hasAttachments: false });
+    version.mockReset().mockResolvedValue(1);
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it('no pregunta al servicio más de una vez por minuto', async () => {
+    const service = new RiskLayersService();
+    await service.get(LAYER);
+    vi.advanceTimersByTime(30_000);
+    await service.get(LAYER);
+    expect(download).toHaveBeenCalledTimes(1);
+    expect(version).not.toHaveBeenCalled();
+  });
+
+  it('si la capa no cambió, solo pregunta su versión y no la descarga de nuevo', async () => {
+    const service = new RiskLayersService();
+    await service.get(LAYER);
+    vi.advanceTimersByTime(61_000);
+    await service.get(LAYER);
+    expect(version).toHaveBeenCalledTimes(1);
+    expect(download).toHaveBeenCalledTimes(1);
+  });
+
+  it('si la editaron, la descarga de nuevo y entrega el dato actualizado', async () => {
+    const service = new RiskLayersService();
+    await service.get(LAYER);
+    version.mockResolvedValue(2);
+    download.mockResolvedValue({ features: [camp('OPERATIVO')], lastEditDate: null, version: 2, hasAttachments: false });
+    vi.advanceTimersByTime(61_000);
+    const data = await service.get(LAYER);
+    expect(download).toHaveBeenCalledTimes(2);
+    expect(data.features[0].properties.ESTADO).toBe('OPERATIVO');
+  });
+
+  it('si el servicio no informa su versión, la descarga de nuevo cuando vence su plazo', async () => {
+    download.mockResolvedValue({ features: [camp('INACTIVO')], lastEditDate: null, version: null, hasAttachments: false });
+    const service = new RiskLayersService();
+    await service.get(LAYER);
+    vi.advanceTimersByTime(61_000);
+    await service.get(LAYER);
+    expect(download).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(12 * 60 * 60_000);
+    await service.get(LAYER);
+    expect(download).toHaveBeenCalledTimes(2);
+    expect(version).not.toHaveBeenCalled();
+  });
+
+  it('si el servicio falla, entrega la última descarga marcada como vieja', async () => {
+    const service = new RiskLayersService();
+    await service.get(LAYER);
+    version.mockRejectedValue(new Error('sin conexión'));
+    vi.advanceTimersByTime(61_000);
+    const data = await service.get(LAYER);
+    expect(data.isStale).toBe(true);
+    expect(data.features).toHaveLength(1);
   });
 });
