@@ -58,22 +58,29 @@ describe('InMemoryEventStore', () => {
     const store = new InMemoryEventStore();
     await store.save({
       upserts: [
-        makeEvent({ externalId: 'a' }),
+        makeEvent({ externalId: 'a', hasDamage: true }),
         makeEvent({ externalId: 'b', severity: 'high', province: null, deceased: 1 }),
         // 23:30 en Ecuador del 1 de octubre (04:30 UTC del 2): cuenta en el día 1.
-        makeEvent({ externalId: 'c', occurredAt: new Date('2026-10-02T04:30:00Z') }),
+        makeEvent({ externalId: 'c', occurredAt: new Date('2026-10-02T04:30:00Z'), status: 'closed' }),
+        // Moderado sin daño: "sin afectaciones"; pero un desborde de río nunca lo es.
+        makeEvent({ externalId: 'd', hasDamage: false }),
+        makeEvent({ externalId: 'e', hazardType: 'river_flood', hasDamage: false }),
       ],
       seenIds: [],
       seenAt: new Date(),
     });
 
     expect(await store.summary(window)).toEqual({
-      total: 3,
-      bySeverity: { moderate: 2, high: 1 },
-      byHazardType: { flood: 3 },
-      byProvince: { 'Los Ríos': 2, 'Sin dato': 1 },
-      byDay: { '2026-10-01': { moderate: 1 }, '2026-10-02': { moderate: 1, high: 1 } },
-      impact: { affected: 30, housesAffected: 6, evacuated: 0, deceased: 1 },
+      total: 5,
+      bySeverity: { moderate: 4, high: 1 },
+      byHazardType: { flood: 4, river_flood: 1 },
+      byProvince: { 'Los Ríos': 4, 'Sin dato': 1 },
+      byDay: { '2026-10-01': { moderate: 1 }, '2026-10-02': { moderate: 3, high: 1 } },
+      byDayStatus: {
+        '2026-10-01': { open: {}, withoutDamage: 0, closed: 1 },
+        '2026-10-02': { open: { moderate: 2, high: 1 }, withoutDamage: 1, closed: 0 },
+      },
+      impact: { affected: 50, housesAffected: 10, evacuated: 0, deceased: 1 },
     });
   });
 });

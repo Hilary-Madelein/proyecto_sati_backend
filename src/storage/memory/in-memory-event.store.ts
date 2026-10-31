@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Injectable, Optional } from '@nestjs/common';
 import { toEcuadorDate } from '../../common/time/ecuador-time.js';
+import { isWithoutDamage } from '../../modules/events/domain/without-damage.js';
 import { HazardEventEntity } from '../../modules/events/entities/hazard-event.entity.js';
 import { EventStore, type EventChanges, type EventFilters, type EventSummary } from '../../modules/events/event-store.js';
 import { JsonFilePersistence } from './json-file-persistence.js';
@@ -81,7 +82,8 @@ export class InMemoryEventStore extends EventStore {
       bySeverity: countBy((event) => event.severity),
       byHazardType: countBy((event) => event.hazardType),
       byProvince: countBy((event) => event.province),
-      byDay: byDay(events),
+      byDay: countByDay(events),
+      byDayStatus: groupByDay(events),
       impact: {
         affected: sum('affected'),
         housesAffected: sum('housesAffected'),
@@ -111,11 +113,23 @@ export class InMemoryEventStore extends EventStore {
 }
 
 /** Eventos por día en Ecuador y severidad. */
-function byDay(events: readonly HazardEventEntity[]): EventSummary['byDay'] {
+function countByDay(events: readonly HazardEventEntity[]): EventSummary['byDay'] {
   const days: EventSummary['byDay'] = {};
   for (const event of events) {
     const day = (days[toEcuadorDate(event.occurredAt)] ??= {});
     day[event.severity] = (day[event.severity] ?? 0) + 1;
+  }
+  return days;
+}
+
+/** Eventos por día en Ecuador, en los grupos del panel de eventos (abiertos por severidad, sin afectaciones, cerrados). */
+function groupByDay(events: readonly HazardEventEntity[]): EventSummary['byDayStatus'] {
+  const days: EventSummary['byDayStatus'] = {};
+  for (const event of events) {
+    const day = (days[toEcuadorDate(event.occurredAt)] ??= { open: {}, withoutDamage: 0, closed: 0 });
+    if (event.status === 'closed') day.closed += 1;
+    else if (isWithoutDamage(event)) day.withoutDamage += 1;
+    else day.open[event.severity] = (day.open[event.severity] ?? 0) + 1;
   }
   return days;
 }

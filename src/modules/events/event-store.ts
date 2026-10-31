@@ -14,6 +14,17 @@ export interface EventFilters {
   bbox?: [number, number, number, number];
 }
 
+/**
+ * Eventos de un día como los separa el panel de eventos del frontend: los
+ * abiertos que muestra (por severidad), los abiertos sin afectaciones que oculta
+ * por defecto (ver `isWithoutDamage`) y los cerrados, que no muestra.
+ */
+export interface DayStatusCounts {
+  open: Record<string, number>;
+  withoutDamage: number;
+  closed: number;
+}
+
 export interface EventSummary {
   total: number;
   bySeverity: Record<string, number>;
@@ -21,6 +32,8 @@ export interface EventSummary {
   byProvince: Record<string, number>;
   /** Eventos por día en Ecuador (AAAA-MM-DD) y severidad; solo los días con eventos. */
   byDay: Record<string, Record<string, number>>;
+  /** Eventos por día en Ecuador (AAAA-MM-DD), en los grupos del panel de eventos; solo los días con eventos. */
+  byDayStatus: Record<string, DayStatusCounts>;
   impact: { affected: number; housesAffected: number; evacuated: number; deceased: number };
 }
 
