@@ -1,4 +1,4 @@
-import { annotatePreventiveActions, annotateResponseActions, isPreventiveAction } from './mit-actions.js';
+import { annotatePreventiveActions, annotateResponseActions, annotateRoadClosures, isPreventiveAction } from './mit-actions.js';
 
 describe('acciones preventivas del MIT', () => {
   const action = (properties: Record<string, unknown>) => ({ type: 'Feature' as const, geometry: null, properties });
@@ -45,5 +45,18 @@ describe('acciones preventivas del MIT', () => {
       Maquinaria_MIT: 'Volqueta, Rodillo liso',
       Maquinaria_otras: null,
     });
+  });
+});
+
+describe('reportes de novedad vial del MIT', () => {
+  const report = (properties: Record<string, unknown>) => ({ type: 'Feature' as const, geometry: null, properties });
+
+  it('pone la causa y las instituciones con su nombre, o lo escrito en "otro"', () => {
+    const [a, b] = annotateRoadClosures([
+      report({ causa: 'deslizamiento', insti_involucradas: 'mit_mtop,gad_cantonal' }),
+      report({ causa: 'otro_5', otro_evento: 'Hundimiento de calzada', insti_involucradas: null }),
+    ]);
+    expect(a.properties).toMatchObject({ Causa: 'Deslizamiento', Instituciones: 'MIT, GAD cantonal' });
+    expect(b.properties).toMatchObject({ Causa: 'Hundimiento de calzada', Instituciones: null });
   });
 });

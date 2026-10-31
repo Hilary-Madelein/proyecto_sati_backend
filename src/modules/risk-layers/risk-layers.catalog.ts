@@ -1,5 +1,5 @@
 import { annotateRoadProjects } from '../canton-analysis/preparedness.js';
-import { annotatePreventiveActions, annotateResponseActions } from './mit-actions.js';
+import { annotatePreventiveActions, annotateResponseActions, annotateRoadClosures } from './mit-actions.js';
 import type { RiskLayerDefinition } from './risk-layer.js';
 
 const SNGR_AGOL = 'https://services8.arcgis.com/csQLKpeoUQumugVg/arcgis/rest/services';
@@ -366,6 +366,48 @@ export const RISK_LAYERS: readonly RiskLayerDefinition[] = [
       refreshMinutes: SURVEY_REFRESH,
     },
     nearestRoad: {},
+  },
+  {
+    id: 'road-closures',
+    title: 'Cierres viales',
+    component: 'respuesta',
+    attribution: 'MIT',
+    source: {
+      kind: 'arcgis',
+      // Encuesta "Reportes de Novedad Vial" de las direcciones distritales del MIT (octubre 2026).
+      layerUrl: `${SNGR_AGOL}/service_1e73ad07db8c4995aef116e7f082191a/FeatureServer/0`,
+      // Sin el responsable del reporte ni quién lo cargó (datos personales).
+      fields: [
+        'fecha_actua',
+        'zonal',
+        'despro',
+        'descanto',
+        'es_rve',
+        'cod_search',
+        'nombre_via',
+        'causa',
+        'otro_evento',
+        'cond_via',
+        'descrip_afec',
+        'acc_ejecutadas',
+        'acc_ejecucion',
+        'acc_prevista',
+        'insti_involucradas',
+        'otra_insti_invu',
+        'maq_perso',
+        'fecha_estim_hab',
+        'horas_transcurridas',
+        'dias_transcurridos',
+        'condicionantes',
+        'ciudada_comu',
+        'CreationDate',
+        'EditDate',
+      ],
+      decodeDomains: true,
+      refreshMinutes: SURVEY_REFRESH,
+    },
+    annotate: annotateRoadClosures,
+    nearestRoad: { declaredField: 'cod_search', onRoadField: 'es_rve' },
   },
   {
     id: 'mit-response-actions',
