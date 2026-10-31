@@ -101,3 +101,22 @@ export function annotateResponseActions(features: GeoJsonFeature[]): GeoJsonFeat
     };
   });
 }
+
+/**
+ * Agrega a cada reporte de novedad vial `Causa` e `Instituciones` con sus
+ * nombres (la encuesta guarda códigos como en las de acciones: "deslizamiento",
+ * "mit_mtop"), con lo escrito en "otro" cuando se eligió esa opción.
+ */
+export function annotateRoadClosures(features: GeoJsonFeature[]): GeoJsonFeature[] {
+  return features.map((feature) => {
+    const p = feature.properties;
+    return {
+      ...feature,
+      properties: {
+        ...p,
+        Causa: choices(p.causa, EVENTS, p.otro_evento),
+        Instituciones: choices(p.insti_involucradas, INSTITUTIONS, p.otra_insti_invu),
+      },
+    };
+  });
+}
