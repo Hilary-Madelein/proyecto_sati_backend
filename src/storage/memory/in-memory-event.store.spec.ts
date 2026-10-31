@@ -65,7 +65,7 @@ describe('InMemoryEventStore', () => {
         // Moderado sin daño: "sin afectaciones"; pero un desborde de río nunca lo es.
         makeEvent({ externalId: 'd', hasDamage: false }),
         makeEvent({ externalId: 'e', hazardType: 'river_flood', hasDamage: false }),
-        // 25 h antes del fin de la ventana (3 oct 00:00 UTC): bloque "1" de las 24 h hacia atrás.
+        // 25 h antes del fin de la ventana (3 oct 00:00 UTC): día 1 de Ecuador y bloque "1" de las 24 h hacia atrás.
         makeEvent({ externalId: 'f', occurredAt: new Date('2026-10-01T23:00:00Z'), hasDamage: true }),
       ],
       seenIds: [],
