@@ -1,12 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { Injectable, Optional } from '@nestjs/common';
 import { toEcuadorDate } from '../../common/time/ecuador-time.js';
-import { isWithoutDamage } from '../../modules/events/domain/without-damage.js';
+import { panelGroupOf } from '../../modules/events/domain/without-damage.js';
 import { HazardEventEntity } from '../../modules/events/entities/hazard-event.entity.js';
-import { EventStore, type EventChanges, type EventFilters, type EventSummary } from '../../modules/events/event-store.js';
+import { EventStore, type DayStatusCounts, type EventChanges, type EventFilters, type EventSummary } from '../../modules/events/event-store.js';
 import { JsonFilePersistence } from './json-file-persistence.js';
 
 const SNAPSHOT = 'events';
+const DAY_MS = 24 * 60 * 60 * 1000;
 type StoredEvent = Omit<HazardEventEntity, 'occurredAt' | 'lastSeenAt' | 'createdAt' | 'updatedAt'> &
   Record<'occurredAt' | 'lastSeenAt' | 'createdAt' | 'updatedAt', string>;
 
@@ -83,7 +84,9 @@ export class InMemoryEventStore extends EventStore {
       byHazardType: countBy((event) => event.hazardType),
       byProvince: countBy((event) => event.province),
       byDay: countByDay(events),
-      byDayStatus: groupByDay(events),
+      byDayStatus: countPanelGroups(events, (event) => toEcuadorDate(event.occurredAt)),
+      // Bloques de 24 h hacia atrás desde `to`: "0" = las últimas 24 h.
+      byLast24h: countPanelGroups(events, (event) => String(Math.floor((filters.to.getTime() - event.occurredAt.getTime()) / DAY_MS))),
       impact: {
         affected: sum('affected'),
         housesAffected: sum('housesAffected'),
@@ -122,14 +125,14 @@ function countByDay(events: readonly HazardEventEntity[]): EventSummary['byDay']
   return days;
 }
 
-/** Eventos por día en Ecuador, en los grupos del panel de eventos (abiertos por severidad, sin afectaciones, cerrados). */
-function groupByDay(events: readonly HazardEventEntity[]): EventSummary['byDayStatus'] {
-  const days: EventSummary['byDayStatus'] = {};
+/** Eventos por lo que diga `key` (día o bloque de 24 h), en los grupos del panel de eventos (abiertos por severidad, sin afectaciones, cerrados). */
+function countPanelGroups(events: readonly HazardEventEntity[], key: (event: HazardEventEntity) => string): Record<string, DayStatusCounts> {
+  const result: Record<string, DayStatusCounts> = {};
   for (const event of events) {
-    const day = (days[toEcuadorDate(event.occurredAt)] ??= { open: {}, withoutDamage: 0, closed: 0 });
-    if (event.status === 'closed') day.closed += 1;
-    else if (isWithoutDamage(event)) day.withoutDamage += 1;
-    else day.open[event.severity] = (day.open[event.severity] ?? 0) + 1;
+    const groups = (result[key(event)] ??= { open: {}, withoutDamage: 0, closed: 0 });
+    const group = panelGroupOf(event);
+    if (group === 'open') groups.open[event.severity] = (groups.open[event.severity] ?? 0) + 1;
+    else groups[group] += 1;
   }
-  return days;
+  return result;
 }

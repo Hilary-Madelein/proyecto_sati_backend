@@ -12,3 +12,14 @@ export function isWithoutDamage(event: Pick<HazardEventEntity, 'severity' | 'haz
 
 /** La misma regla en SQL, sobre el alias `event` de una consulta de TypeORM. */
 export const WITHOUT_DAMAGE_SQL = `event.severity = 'moderate' AND event.hazardType <> 'river_flood' AND NOT event.hasDamage`;
+
+/** Grupo del panel de eventos al que pertenece un evento. */
+export type PanelGroup = 'open' | 'withoutDamage' | 'closed';
+
+export function panelGroupOf(event: Pick<HazardEventEntity, 'status' | 'severity' | 'hazardType' | 'hasDamage'>): PanelGroup {
+  if (event.status === 'closed') return 'closed';
+  return isWithoutDamage(event) ? 'withoutDamage' : 'open';
+}
+
+/** `panelGroupOf` en SQL, sobre el alias `event`. */
+export const PANEL_GROUP_SQL = `CASE WHEN event.status = 'closed' THEN 'closed' WHEN ${WITHOUT_DAMAGE_SQL} THEN 'withoutDamage' ELSE 'open' END`;

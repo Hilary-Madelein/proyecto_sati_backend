@@ -2,9 +2,11 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
 import { ECUADOR_TIME_ZONE } from '../../common/time/ecuador-time.js';
-import { WITHOUT_DAMAGE_SQL } from '../../modules/events/domain/without-damage.js';
+import { PANEL_GROUP_SQL, type PanelGroup } from '../../modules/events/domain/without-damage.js';
 import { HazardEventEntity } from '../../modules/events/entities/hazard-event.entity.js';
-import { EventStore, type EventChanges, type EventFilters, type EventSummary } from '../../modules/events/event-store.js';
+import { EventStore, type DayStatusCounts, type EventChanges, type EventFilters, type EventSummary } from '../../modules/events/event-store.js';
+
+type GroupRow = { severity: string; grp: PanelGroup; count: number };
 
 @Injectable()
 export class TypeOrmEventStore extends EventStore {
@@ -50,19 +52,30 @@ export class TypeOrmEventStore extends EventStore {
       return Object.fromEntries(rows.map((row) => [row.key ?? 'Sin dato', row.count]));
     };
 
-    const [bySeverity, byHazardType, byProvince, dayRows, totals] = await Promise.all([
+    const [bySeverity, byHazardType, byProvince, dayRows, windowRows, totals] = await Promise.all([
       countBy('severity'),
       countBy('hazardType'),
       countBy('province'),
       this.filteredQuery(filters)
         .select(`to_char(event.occurredAt AT TIME ZONE '${ECUADOR_TIME_ZONE}', 'YYYY-MM-DD')`, 'day')
         .addSelect('event.severity', 'severity')
-        .addSelect(`CASE WHEN event.status = 'closed' THEN 'closed' WHEN ${WITHOUT_DAMAGE_SQL} THEN 'withoutDamage' ELSE 'open' END`, 'grp')
+        .addSelect(PANEL_GROUP_SQL, 'grp')
         .addSelect('COUNT(*)::int', 'count')
         .groupBy('day')
         .addGroupBy('event.severity')
         .addGroupBy('grp')
-        .getRawMany<{ day: string; severity: string; grp: 'open' | 'withoutDamage' | 'closed'; count: number }>(),
+        .getRawMany<GroupRow & { day: string }>(),
+      // Bloques de 24 h hacia atrás desde `to`: 0 = las últimas 24 h.
+      this.filteredQuery(filters)
+        .select('FLOOR(EXTRACT(EPOCH FROM (CAST(:windowEnd AS timestamptz) - event.occurredAt)) / 86400)::int', 'win')
+        .addSelect('event.severity', 'severity')
+        .addSelect(PANEL_GROUP_SQL, 'grp')
+        .addSelect('COUNT(*)::int', 'count')
+        .setParameter('windowEnd', filters.to)
+        .groupBy('win')
+        .addGroupBy('event.severity')
+        .addGroupBy('grp')
+        .getRawMany<GroupRow & { win: number }>(),
       this.filteredQuery(filters)
         .select('COUNT(*)::int', 'total')
         .addSelect('COALESCE(SUM(event.affected), 0)::int', 'affected')
@@ -78,13 +91,13 @@ export class TypeOrmEventStore extends EventStore {
     for (const row of dayRows) {
       const severities = (byDay[row.day] ??= {});
       severities[row.severity] = (severities[row.severity] ?? 0) + row.count;
-      const groups = (byDayStatus[row.day] ??= { open: {}, withoutDamage: 0, closed: 0 });
-      if (row.grp === 'open') groups.open[row.severity] = (groups.open[row.severity] ?? 0) + row.count;
-      else groups[row.grp] += row.count;
+      addToGroups((byDayStatus[row.day] ??= emptyGroups()), row);
     }
+    const byLast24h: EventSummary['byLast24h'] = {};
+    for (const row of windowRows) addToGroups((byLast24h[String(row.win)] ??= emptyGroups()), row);
 
     const { total = 0, ...impact } = totals ?? { affected: 0, housesAffected: 0, evacuated: 0, deceased: 0 };
-    return { total, bySeverity, byHazardType, byProvince, byDay, byDayStatus, impact };
+    return { total, bySeverity, byHazardType, byProvince, byDay, byDayStatus, byLast24h, impact };
   }
 
   private filteredQuery(filters: EventFilters) {
@@ -105,4 +118,11 @@ export class TypeOrmEventStore extends EventStore {
     }
     return query;
   }
+}
+
+const emptyGroups = (): DayStatusCounts => ({ open: {}, withoutDamage: 0, closed: 0 });
+
+function addToGroups(groups: DayStatusCounts, row: GroupRow): void {
+  if (row.grp === 'open') groups.open[row.severity] = (groups.open[row.severity] ?? 0) + row.count;
+  else groups[row.grp] += row.count;
 }

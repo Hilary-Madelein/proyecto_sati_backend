@@ -65,22 +65,28 @@ describe('InMemoryEventStore', () => {
         // Moderado sin daño: "sin afectaciones"; pero un desborde de río nunca lo es.
         makeEvent({ externalId: 'd', hasDamage: false }),
         makeEvent({ externalId: 'e', hazardType: 'river_flood', hasDamage: false }),
+        // 25 h antes del fin de la ventana (3 oct 00:00 UTC): bloque "1" de las 24 h hacia atrás.
+        makeEvent({ externalId: 'f', occurredAt: new Date('2026-10-01T23:00:00Z'), hasDamage: true }),
       ],
       seenIds: [],
       seenAt: new Date(),
     });
 
     expect(await store.summary(window)).toEqual({
-      total: 5,
-      bySeverity: { moderate: 4, high: 1 },
-      byHazardType: { flood: 4, river_flood: 1 },
-      byProvince: { 'Los Ríos': 4, 'Sin dato': 1 },
-      byDay: { '2026-10-01': { moderate: 1 }, '2026-10-02': { moderate: 3, high: 1 } },
+      total: 6,
+      bySeverity: { moderate: 5, high: 1 },
+      byHazardType: { flood: 5, river_flood: 1 },
+      byProvince: { 'Los Ríos': 5, 'Sin dato': 1 },
+      byDay: { '2026-10-01': { moderate: 2 }, '2026-10-02': { moderate: 3, high: 1 } },
       byDayStatus: {
-        '2026-10-01': { open: {}, withoutDamage: 0, closed: 1 },
+        '2026-10-01': { open: { moderate: 1 }, withoutDamage: 0, closed: 1 },
         '2026-10-02': { open: { moderate: 2, high: 1 }, withoutDamage: 1, closed: 0 },
       },
-      impact: { affected: 50, housesAffected: 10, evacuated: 0, deceased: 1 },
+      byLast24h: {
+        '0': { open: { moderate: 2, high: 1 }, withoutDamage: 1, closed: 1 },
+        '1': { open: { moderate: 1 }, withoutDamage: 0, closed: 0 },
+      },
+      impact: { affected: 60, housesAffected: 12, evacuated: 0, deceased: 1 },
     });
   });
 });

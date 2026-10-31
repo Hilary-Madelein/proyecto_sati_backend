@@ -34,6 +34,13 @@ export interface EventSummary {
   byDay: Record<string, Record<string, number>>;
   /** Eventos por día en Ecuador (AAAA-MM-DD), en los grupos del panel de eventos; solo los días con eventos. */
   byDayStatus: Record<string, DayStatusCounts>;
+  /**
+   * Eventos por bloques de 24 h contados hacia atrás desde `to` ("0" = las 24 h
+   * hasta `to`, "1" = las 24 h anteriores…), en los grupos del panel de eventos;
+   * solo los bloques con eventos. Con el mismo `to` que el panel, el bloque "0"
+   * son sus "últimas 24 h", y los primeros 3 y 7 suman sus "últimos 3 y 7 días".
+   */
+  byLast24h: Record<string, DayStatusCounts>;
   impact: { affected: number; housesAffected: number; evacuated: number; deceased: number };
 }
 

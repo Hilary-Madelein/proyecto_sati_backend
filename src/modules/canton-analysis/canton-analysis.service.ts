@@ -120,8 +120,8 @@ export interface CantonAnalysis {
     camps: number;
     /** Eventos adversos en vías de los últimos 3 meses con acciones por ejecutar o en ejecución. */
     roadEventsOpen: number;
-    /** Trabajos para recuperar la transitabilidad registrados. */
-    recoveryWorks: number;
+    /** Acciones de respuesta del MIT registradas (despeje de derrumbes, variantes, taludes…). */
+    responseActions: number;
   };
 }
 
@@ -387,7 +387,7 @@ export class CantonAnalysisService implements OnApplicationBootstrap, OnModuleDe
           ['ACCIONES POR EJECUTAR', 'ACCIONES EN EJECUCIÓN'].includes(text(f, 'situaci_n_del_evento')) &&
           Date.parse(String(f.properties.fecha_en_que_ocurri_el_evento ?? '')) >= roadEventsSince,
       ),
-      recoveryWorks: countPoints(l.get('rve-recovery')),
+      responseActions: countPoints(l.get('mit-response-actions')),
     };
     // El inventario de maquinaria pone todos los equipos de una provincia en un mismo punto: se cuenta por la provincia que declara.
     const provinceCodes = new Map(shapes.map((canton) => [normalizeText(canton.province), canton.provinceCode]));
@@ -440,7 +440,7 @@ export class CantonAnalysisService implements OnApplicationBootstrap, OnModuleDe
           provinceMachinery: get(machineryByProvince, canton.provinceCode),
           camps: get(counts.camps, canton.code),
           roadEventsOpen: get(counts.roadEventsOpen, canton.code),
-          recoveryWorks: get(counts.recoveryWorks, canton.code),
+          responseActions: get(counts.responseActions, canton.code),
         },
       };
     });
@@ -615,7 +615,7 @@ export class CantonAnalysisService implements OnApplicationBootstrap, OnModuleDe
       'machinery-by-province',
       'mtop-camps',
       'road-adverse-events',
-      'rve-recovery',
+      'mit-response-actions',
     ];
     const layers = new Map<string, GeoJsonFeature[]>();
     const failed: string[] = [];
