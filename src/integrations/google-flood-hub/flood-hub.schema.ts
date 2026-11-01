@@ -30,6 +30,61 @@ export const gaugesGeoJsonSchema = z.object({
   ),
 });
 
+/** Respuesta de floodStatus:searchLatestFloodStatusByArea. Sin resultados, `floodStatuses` no viene. */
+export const floodStatusResponseSchema = z.object({
+  floodStatuses: z
+    .array(
+      z.object({
+        gaugeId: z.string(),
+        qualityVerified: z.boolean().nullish(),
+        gaugeLocation: z.object({ latitude: z.number(), longitude: z.number() }).nullish(),
+        issuedTime: optionalText,
+        forecastTimeRange: z.object({ start: optionalText, end: optionalText }).nullish(),
+        forecastTrend: optionalText,
+        severity: optionalText,
+      }),
+    )
+    .default([]),
+  nextPageToken: z.string().nullish(),
+});
+
+/** Respuesta de flashFloods:search. Sin eventos, `flashFloodEvents` no viene. */
+export const flashFloodsResponseSchema = z.object({
+  flashFloodEvents: z
+    .array(
+      z.object({
+        forecastIssueTime: z.string(),
+        forecastPeriodHours: z.number(),
+        affectedCountryCodes: z.array(z.string()).default([]),
+        likelyAffectedPolygonId: z.string().nullish(),
+        highlyLikelyAffectedPolygonId: z.string().nullish(),
+      }),
+    )
+    .default([]),
+  nextPageToken: z.string().nullish(),
+});
+
+export const serializedPolygonSchema = z.object({ kml: z.string() });
+
+export function statusesToFloodHubGauges(data: z.infer<typeof floodStatusResponseSchema>): FloodHubGauge[] {
+  return data.floodStatuses.flatMap((status) => {
+    if (!status.gaugeLocation) return [];
+    return [
+      {
+        id: status.gaugeId,
+        lat: status.gaugeLocation.latitude,
+        lng: status.gaugeLocation.longitude,
+        severity: SEVERITIES[status.severity ?? ''] ?? 'unknown',
+        trend: TRENDS[status.forecastTrend ?? ''] ?? 'unknown',
+        verified: status.qualityVerified ?? false,
+        issuedAt: status.issuedTime,
+        forecastFrom: status.forecastTimeRange?.start ?? null,
+        forecastTo: status.forecastTimeRange?.end ?? null,
+      },
+    ];
+  });
+}
+
 /** Puntos con coordenadas, con severidad y tendencia normalizadas (lo desconocido queda como "unknown"). */
 export function toFloodHubGauges(data: z.infer<typeof gaugesGeoJsonSchema>): FloodHubGauge[] {
   return data.features.flatMap(({ geometry, properties }) => {

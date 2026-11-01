@@ -139,10 +139,12 @@ export const envSchema = z.object({
   INAMHI_STATIONS_API_URL: z.url().default('https://apis.inamhi.gob.ec/api/v1'),
 
   // ── Google Flood Hub ─────────────────────────────────────────────────────
+  /** Clave de la API de Google Flood Forecasting. Solo backend: nunca en variables del frontend. */
+  GOOGLE_FLOOD_API_KEY: z.string().optional().or(z.literal('').transform(() => undefined)),
+  FLOOD_FORECASTING_API_URL: z.url().default('https://floodforecasting.googleapis.com/v1'),
   /**
-   * Último estado de los puntos de pronóstico de Flood Hub en el Ecuador, en
-   * GeoJSON. Mientras no haya acceso directo a la API de Google, sale del demo
-   * de pronóstico GDE-Niño, que la consulta a diario.
+   * Respaldo sin clave: último estado de los puntos del Ecuador en GeoJSON, del
+   * demo de pronóstico GDE-Niño, que consulta la API a diario.
    */
   FLOOD_HUB_GAUGES_URL: z
     .url()

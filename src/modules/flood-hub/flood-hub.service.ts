@@ -1,6 +1,6 @@
 import { BadGatewayException, Injectable, Logger } from '@nestjs/common';
 import { UpstreamError } from '../../common/http/upstream.error.js';
-import { FloodHubSource, type FloodHubGauge, type FloodHubSeverity } from './flood-hub-source.js';
+import { FloodHubSource, type FlashFloodArea, type FloodHubGauge, type FloodHubSeverity } from './flood-hub-source.js';
 
 /** Google actualiza el estado unas veces al día: se vuelve a consultar cada 30 minutos. */
 const REFRESH_MS = 30 * 60 * 1000;
@@ -19,6 +19,8 @@ export interface FloodHubSnapshot {
   flaggedCount: number;
   /** Primero los de mayor severidad. */
   gauges: FloodHubGauge[];
+  /** Crecidas repentinas urbanas vigentes; null si la fuente no las ofrece. */
+  flashFloods: FlashFloodArea[] | null;
 }
 
 const SEVERITY_RANK: Record<FloodHubSeverity, number> = {
@@ -54,9 +56,8 @@ export class FloodHubService {
   }
 
   private async load(): Promise<FloodHubSnapshot> {
-    const gauges = (await this.source.getGauges()).sort(
-      (a, b) => SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity],
-    );
+    const [sourceGauges, flashFloods] = await Promise.all([this.source.getGauges(), this.loadFlashFloods()]);
+    const gauges = sourceGauges.sort((a, b) => SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity]);
     const issued = gauges.map((gauge) => gauge.issuedAt).filter((time) => time !== null).sort();
     return {
       fetchedAt: new Date().toISOString(),
@@ -65,6 +66,17 @@ export class FloodHubService {
       isStale: false,
       flaggedCount: gauges.filter((gauge) => FLAGGED.has(gauge.severity)).length,
       gauges,
+      flashFloods,
     };
+  }
+
+  /** Un fallo en las crecidas repentinas no debe tumbar los puntos: se conserva la última lista buena. */
+  private async loadFlashFloods(): Promise<FlashFloodArea[] | null> {
+    try {
+      return await this.source.getFlashFloods();
+    } catch (error) {
+      this.logger.warn(`Flood Hub: no se pudieron cargar las crecidas repentinas (${(error as Error).message})`);
+      return this.latest?.flashFloods ?? null;
+    }
   }
 }
