@@ -26,4 +26,10 @@ export class FloodHubGeoJsonSource extends FloodHubSource {
     if (!parsed.success) throw new UpstreamError(SERVICE, 'respondió con un formato inesperado');
     return toFloodHubGauges(parsed.data);
   }
+
+  /** El demo solo publica los puntos. */
+  getFlashFloods(): Promise<null> {
+    return Promise.resolve(null);
+  }
+
 }

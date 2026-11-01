@@ -21,12 +21,33 @@ export interface FloodHubGauge {
   forecastTo: string | null;
 }
 
+export type FlashFloodLikelihood = 'likely' | 'highly_likely';
+
+export interface FlashFloodGeometry {
+  type: 'MultiPolygon';
+  coordinates: number[][][][];
+}
+
+/** Zona urbana con riesgo de crecida repentina (celdas de ~20 km) y su nivel de probabilidad. */
+export interface FlashFloodArea {
+  /** Id del polígono en Google. */
+  id: string;
+  likelihood: FlashFloodLikelihood;
+  issuedAt: string;
+  /** Fin de la validez del pronóstico (ISO 8601). */
+  validUntil: string;
+  /** Países afectados (ISO 3166 alfa-2); puede incluir vecinos del Ecuador. */
+  countries: string[];
+  geometry: FlashFloodGeometry;
+}
+
 /**
- * Contrato de la fuente de Flood Hub. Hoy la implementa el GeoJSON del demo
- * GDE-Niño; con una clave de la API de Google, otra clase la reemplaza sin
- * cambiar el resto.
+ * Contrato de la fuente de Flood Hub: la API de Google si hay clave; si no, el
+ * GeoJSON del demo GDE-Niño.
  */
 export abstract class FloodHubSource {
   abstract readonly attribution: string;
   abstract getGauges(): Promise<FloodHubGauge[]>;
+  /** Crecidas repentinas vigentes; null si la fuente no las ofrece. */
+  abstract getFlashFloods(): Promise<FlashFloodArea[] | null>;
 }
