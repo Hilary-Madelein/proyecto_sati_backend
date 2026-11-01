@@ -60,6 +60,7 @@ src/
 │   ├── sea-temperature/ Anomalía de la temperatura del mar frente a Ecuador (indicador de El Niño)
 │   ├── weather-stations/ Lluvia medida en las estaciones (pluviómetros) en las últimas horas
 │   ├── notifications/ Regla de alertas y canales de envío (log hoy, correo después)
+│   ├── flood-alerts/  Prueba: crecidas repentinas de Google por Telegram
 │   └── health/        Estado del servicio y la BD
 └── integrations/      Un adaptador por API externa
     ├── sngr/                     Eventos adversos de la SNGR
@@ -118,6 +119,16 @@ Listo: la ingesta la programa, sus eventos aparecen en `GET /events` y disparan 
 Crea una clase con `@MapLayerProvider()` que devuelva sus `MapLayerDefinition`
 (ver `integrations/inamhi-wrf/wrf-layers.provider.ts`) e importa su módulo. Queda
 disponible en `GET /layers`, `/layers/:id`, `/layers/:id/legend` y `/layers/:id/wms`.
+
+### Alertas de crecidas por Telegram (prueba)
+
+Se enciende con `TELEGRAM_BOT_TOKEN` y `TELEGRAM_INVITE_CODE`; sin ellos no corre nada. El enlace
+`https://t.me/<bot>?start=<TELEGRAM_INVITE_CODE>` registra el chat de quien lo abre; `/estado` muestra
+lo vigente y `/parar` corta las alertas. Solo un proceso puede usar el token (long polling): no dejarlo
+a la vez en local y en el servidor. Cada 5 minutos se revisa si Google emitió de nuevo y se compara **por
+cantón**, porque Google cambia todos los ids en cada emisión: se avisa lo que entra o sube a Muy probable;
+lo que baja o sale, solo si la emisión siguiente lo confirma, y nada si sigue igual. Cada emisión queda en
+`flash_flood_issues` para medir después los aciertos frente a la SNGR.
 
 ### Un canal de notificación (p. ej. SMS)
 

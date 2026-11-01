@@ -5,6 +5,9 @@ import { buildDataSourceOptions } from '../../database/database.options.js';
 import { AdminSessionStore, AdminUserStore } from '../../modules/admin-auth/admin-auth-stores.js';
 import { AdminSessionEntity } from '../../modules/admin-auth/entities/admin-session.entity.js';
 import { AdminUserEntity } from '../../modules/admin-auth/entities/admin-user.entity.js';
+import { FlashFloodIssueEntity } from '../../modules/flood-alerts/entities/flash-flood-issue.entity.js';
+import { TelegramChatEntity } from '../../modules/flood-alerts/entities/telegram-chat.entity.js';
+import { FlashFloodIssueStore, TelegramChatStore } from '../../modules/flood-alerts/flood-alert-stores.js';
 import { HazardEventEntity } from '../../modules/events/entities/hazard-event.entity.js';
 import { EventStore } from '../../modules/events/event-store.js';
 import { SyncRunEntity } from '../../modules/ingestion/entities/sync-run.entity.js';
@@ -17,6 +20,7 @@ import { STORAGE_MODE } from '../storage-mode.js';
 import { PostgresSourceLock } from './postgres-source.lock.js';
 import { TypeOrmAdminSessionStore, TypeOrmAdminUserStore } from './typeorm-admin-auth.stores.js';
 import { TypeOrmEventStore } from './typeorm-event.store.js';
+import { TypeOrmFlashFloodIssueStore, TypeOrmTelegramChatStore } from './typeorm-flood-alert.stores.js';
 import { TypeOrmDeliveryStore, TypeOrmSubscriberStore } from './typeorm-notification.stores.js';
 import { TypeOrmSyncRunStore } from './typeorm-sync-run.store.js';
 
@@ -39,6 +43,8 @@ import { TypeOrmSyncRunStore } from './typeorm-sync-run.store.js';
       NotificationDeliveryEntity,
       AdminUserEntity,
       AdminSessionEntity,
+      TelegramChatEntity,
+      FlashFloodIssueEntity,
     ]),
   ],
   providers: [
@@ -48,9 +54,11 @@ import { TypeOrmSyncRunStore } from './typeorm-sync-run.store.js';
     { provide: SourceLock, useClass: PostgresSourceLock },
     { provide: SubscriberStore, useClass: TypeOrmSubscriberStore },
     { provide: DeliveryStore, useClass: TypeOrmDeliveryStore },
+    { provide: TelegramChatStore, useClass: TypeOrmTelegramChatStore },
+    { provide: FlashFloodIssueStore, useClass: TypeOrmFlashFloodIssueStore },
     { provide: AdminUserStore, useClass: TypeOrmAdminUserStore },
     { provide: AdminSessionStore, useClass: TypeOrmAdminSessionStore },
   ],
-  exports: [STORAGE_MODE, EventStore, SyncRunStore, SourceLock, SubscriberStore, DeliveryStore, AdminUserStore, AdminSessionStore],
+  exports: [STORAGE_MODE, EventStore, SyncRunStore, SourceLock, SubscriberStore, DeliveryStore, TelegramChatStore, FlashFloodIssueStore, AdminUserStore, AdminSessionStore],
 })
 export class PostgresStorageModule {}

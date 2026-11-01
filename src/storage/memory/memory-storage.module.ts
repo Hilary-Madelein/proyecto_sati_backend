@@ -1,12 +1,14 @@
 import { Global, Logger, Module, type OnModuleInit } from '@nestjs/common';
 import { AdminSessionStore, AdminUserStore } from '../../modules/admin-auth/admin-auth-stores.js';
 import { EventStore } from '../../modules/events/event-store.js';
+import { FlashFloodIssueStore, TelegramChatStore } from '../../modules/flood-alerts/flood-alert-stores.js';
 import { SourceLock } from '../../modules/ingestion/source-lock.js';
 import { SyncRunStore } from '../../modules/ingestion/sync-run-store.js';
 import { DeliveryStore, SubscriberStore } from '../../modules/notifications/notification-stores.js';
 import { STORAGE_MODE } from '../storage-mode.js';
 import { InMemoryAdminSessionStore, InMemoryAdminUserStore } from './in-memory-admin-auth.stores.js';
 import { InMemoryEventStore } from './in-memory-event.store.js';
+import { InMemoryFlashFloodIssueStore, InMemoryTelegramChatStore } from './in-memory-flood-alert.stores.js';
 import { InMemoryDeliveryStore, InMemorySubscriberStore } from './in-memory-notification.stores.js';
 import { InMemorySourceLock } from './in-memory-source.lock.js';
 import { InMemorySyncRunStore } from './in-memory-sync-run.store.js';
@@ -26,12 +28,14 @@ import { JsonFilePersistence } from './json-file-persistence.js';
     { provide: SourceLock, useClass: InMemorySourceLock },
     { provide: SubscriberStore, useClass: InMemorySubscriberStore },
     { provide: DeliveryStore, useClass: InMemoryDeliveryStore },
+    { provide: TelegramChatStore, useClass: InMemoryTelegramChatStore },
+    { provide: FlashFloodIssueStore, useClass: InMemoryFlashFloodIssueStore },
     // Al borrar una cuenta, su almacén cierra sus sesiones: comparten instancia.
     InMemoryAdminSessionStore,
     { provide: AdminSessionStore, useExisting: InMemoryAdminSessionStore },
     { provide: AdminUserStore, useClass: InMemoryAdminUserStore },
   ],
-  exports: [STORAGE_MODE, EventStore, SyncRunStore, SourceLock, SubscriberStore, DeliveryStore, AdminUserStore, AdminSessionStore],
+  exports: [STORAGE_MODE, EventStore, SyncRunStore, SourceLock, SubscriberStore, DeliveryStore, TelegramChatStore, FlashFloodIssueStore, AdminUserStore, AdminSessionStore],
 })
 export class MemoryStorageModule implements OnModuleInit {
   onModuleInit(): void {

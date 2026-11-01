@@ -14,6 +14,7 @@ import { SatellitePrecipitationModule } from './integrations/satellite-precipita
 import { SngrModule } from './integrations/sngr/sngr.module.js';
 import { CantonAnalysisModule } from './modules/canton-analysis/canton-analysis.module.js';
 import { EventsModule } from './modules/events/events.module.js';
+import { FloodAlertsModule } from './modules/flood-alerts/flood-alerts.module.js';
 import { FloodHubModule } from './modules/flood-hub/flood-hub.module.js';
 import { HealthModule } from './modules/health/health.module.js';
 import { HydrologyModule } from './modules/hydrology/hydrology.module.js';
@@ -49,6 +50,7 @@ import { StorageModule } from './storage/storage.module.js';
     RiskLayersModule,
     CantonAnalysisModule,
     NotificationsModule,
+    FloodAlertsModule,
     AdminAuthModule,
     HealthModule,
 

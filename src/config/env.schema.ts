@@ -126,6 +126,16 @@ export const envSchema = z.object({
   /** Dirección pública del mapa, para el enlace "Ver en el mapa" de los correos. */
   APP_PUBLIC_URL: z.url().optional().or(z.literal('').transform(() => undefined)),
 
+  // ── Alertas por Telegram (prueba) ────────────────────────────────────────
+  /** Token del bot, de @BotFather (secreto: solo en .env). Vacío = el bot y sus alertas no se encienden. */
+  TELEGRAM_BOT_TOKEN: z.string().optional().or(z.literal('').transform(() => undefined)),
+  /** Código del enlace de invitación t.me/<bot>?start=<código>. Cambiarlo bloquea altas nuevas, no a quienes ya entraron. */
+  TELEGRAM_INVITE_CODE: z
+    .string()
+    .regex(/^[A-Za-z0-9_-]{8,64}$/, 'de 8 a 64 caracteres: letras, números, _ y -')
+    .optional()
+    .or(z.literal('').transform(() => undefined)),
+
   // ── Caudales ─────────────────────────────────────────────────────────────
   /** API pública de GEOGLOWS (pronóstico de caudal por tramo de río). */
   GEOGLOWS_API_URL: z.url().default('https://geoglows.ecmwf.int/api/v2'),
@@ -166,6 +176,9 @@ export const envSchema = z.object({
   }
   if (env.SMTP_USER && !env.SMTP_PASS) {
     ctx.addIssue({ code: 'custom', path: ['SMTP_PASS'], message: 'obligatoria cuando hay SMTP_USER' });
+  }
+  if (env.TELEGRAM_BOT_TOKEN && !env.TELEGRAM_INVITE_CODE) {
+    ctx.addIssue({ code: 'custom', path: ['TELEGRAM_INVITE_CODE'], message: 'obligatorio cuando hay TELEGRAM_BOT_TOKEN' });
   }
   if (!env.SNGR_ENABLED) return;
   for (const key of ['SNGR_USUARIO', 'SNGR_CLAVE'] as const) {

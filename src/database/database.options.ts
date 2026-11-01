@@ -1,6 +1,8 @@
 import type { DataSourceOptions } from 'typeorm';
 import { AdminSessionEntity } from '../modules/admin-auth/entities/admin-session.entity.js';
 import { AdminUserEntity } from '../modules/admin-auth/entities/admin-user.entity.js';
+import { FlashFloodIssueEntity } from '../modules/flood-alerts/entities/flash-flood-issue.entity.js';
+import { TelegramChatEntity } from '../modules/flood-alerts/entities/telegram-chat.entity.js';
 import { HazardEventEntity } from '../modules/events/entities/hazard-event.entity.js';
 import { SyncRunEntity } from '../modules/ingestion/entities/sync-run.entity.js';
 import { NotificationDeliveryEntity } from '../modules/notifications/entities/notification-delivery.entity.js';
@@ -10,6 +12,7 @@ import { Notifications1791244800000 } from './migrations/1791244800000-notificat
 import { AdminAccounts1791331200000 } from './migrations/1791331200000-admin-accounts.js';
 import { EventFloodDetails1791936000000 } from './migrations/1791936000000-event-flood-details.js';
 import { EventDamage1792022400000 } from './migrations/1792022400000-event-damage.js';
+import { FloodAlerts1793491200000 } from './migrations/1793491200000-flood-alerts.js';
 
 /**
  * Entidades y migraciones se listan explícitamente (sin patrones de archivos):
@@ -22,6 +25,8 @@ export const ENTITIES = [
   NotificationDeliveryEntity,
   AdminUserEntity,
   AdminSessionEntity,
+  TelegramChatEntity,
+  FlashFloodIssueEntity,
 ];
 export const MIGRATIONS = [
   InitialSchema1790985600000,
@@ -29,6 +34,7 @@ export const MIGRATIONS = [
   AdminAccounts1791331200000,
   EventFloodDetails1791936000000,
   EventDamage1792022400000,
+  FloodAlerts1793491200000,
 ];
 
 export function buildDataSourceOptions(databaseUrl: string, ssl: boolean): DataSourceOptions {
