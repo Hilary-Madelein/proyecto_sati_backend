@@ -123,8 +123,10 @@ disponible en `GET /layers`, `/layers/:id`, `/layers/:id/legend` y `/layers/:id/
 ### Alertas de crecidas por Telegram (prueba)
 
 Se enciende con `TELEGRAM_BOT_TOKEN` y `TELEGRAM_INVITE_CODE`; sin ellos no corre nada. El enlace
-`https://t.me/<bot>?start=<TELEGRAM_INVITE_CODE>` registra el chat de quien lo abre; `/estado` muestra
-lo vigente y `/parar` corta las alertas. Solo un proceso puede usar el token (long polling): no dejarlo
+`https://t.me/<bot>?start=<TELEGRAM_INVITE_CODE>` registra el chat de quien lo abre, que marca con botones
+todo el país o una o más provincias y cantones; lo elegido queda guardado y se cambia con `/alertas`.
+`/estado` muestra lo vigente y `/parar` corta las alertas. Cada cantón lleva la lluvia pronosticada para 24 h
+(WRF, la más alta entre sus parroquias afectadas) y, si hay una estación a menos de 10 km, lo medido en 12 h. Solo un proceso puede usar el token (long polling): no dejarlo
 a la vez en local y en el servidor. Cada 5 minutos se revisa si Google emitió de nuevo y se compara **por
 cantón**, porque Google cambia todos los ids en cada emisión: se avisa lo que entra o sube a Muy probable;
 lo que baja o sale, solo si la emisión siguiente lo confirma, y nada si sigue igual. Cada emisión queda en

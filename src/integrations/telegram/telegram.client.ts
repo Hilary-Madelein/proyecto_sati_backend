@@ -18,6 +18,14 @@ export interface TelegramUpdate {
   message?: { text?: string; chat: TelegramChat; from?: { first_name?: string; username?: string } };
   /** Cambios del bot en un chat: en uno privado, que la persona lo bloqueó o desbloqueó. */
   my_chat_member?: { chat: TelegramChat; new_chat_member: { status: string } };
+  /** Tocaron un botón de un mensaje. */
+  callback_query?: { id: string; data?: string; message?: { message_id: number; chat: TelegramChat } };
+}
+
+/** Botón de opción: al tocarlo, Telegram devuelve `data` (máximo 64 bytes). */
+export interface TelegramButton {
+  label: string;
+  data: string;
 }
 
 export interface TelegramMessage {
@@ -27,7 +35,12 @@ export interface TelegramMessage {
   silent?: boolean;
   /** Botón con enlace debajo del mensaje. Telegram rechaza direcciones de localhost. */
   link?: { label: string; url: string };
+  /** Filas de botones de opción. */
+  buttons?: TelegramButton[][];
 }
+
+const toKeyboard = (buttons: TelegramButton[][]) =>
+  buttons.map((row) => row.map(({ label, data }) => ({ text: label, callback_data: data })));
 
 /** Error de la API de Telegram. Nunca incluye el token: va en la URL, que no se registra. */
 export class TelegramError extends Error {
@@ -60,7 +73,7 @@ export class TelegramClient {
   getUpdates(offset: number, signal: AbortSignal): Promise<TelegramUpdate[]> {
     return this.call<TelegramUpdate[]>(
       'getUpdates',
-      { offset, timeout: POLL_SECONDS, allowed_updates: ['message', 'my_chat_member'] },
+      { offset, timeout: POLL_SECONDS, allowed_updates: ['message', 'my_chat_member', 'callback_query'] },
       { signal, timeoutMs: (POLL_SECONDS + 10) * 1000 },
     );
   }
@@ -82,8 +95,30 @@ export class TelegramClient {
           disable_notification: message.silent ?? false,
           link_preview_options: { is_disabled: true },
           ...(isLast && message.link && { reply_markup: { inline_keyboard: [[{ text: message.link.label, url: message.link.url }]] } }),
+          ...(isLast && message.buttons && { reply_markup: { inline_keyboard: toKeyboard(message.buttons) } }),
         }),
       );
+    }
+  }
+
+  /** Quita el "cargando" del botón que tocaron. */
+  async answerCallback(id: string): Promise<void> {
+    await this.call('answerCallbackQuery', { callback_query_id: id });
+  }
+
+  /** Reemplaza el texto y los botones de un mensaje; sin `buttons`, los quita. */
+  async editMessage(chatId: string, messageId: number, text: string, buttons?: TelegramButton[][]): Promise<void> {
+    try {
+      await this.call('editMessageText', {
+        chat_id: chatId,
+        message_id: messageId,
+        text,
+        parse_mode: 'HTML',
+        ...(buttons && { reply_markup: { inline_keyboard: toKeyboard(buttons) } }),
+      });
+    } catch (error) {
+      // Dos toques al mismo botón: el mensaje ya dice eso.
+      if (!(error instanceof TelegramError && error.message.includes('message is not modified'))) throw error;
     }
   }
 
@@ -123,15 +158,19 @@ export class TelegramClient {
   }
 }
 
-/** Parte el texto en trozos que Telegram acepta, sin cortar una línea (y con ella una etiqueta HTML). */
+/**
+ * Parte el texto en trozos que Telegram acepta. Corta entre bloques (separados por
+ * una línea en blanco): cada uno debe ser HTML completo, porque una etiqueta sin
+ * cerrar hace que Telegram rechace el mensaje.
+ */
 export function splitText(text: string, limit = MAX_TEXT): string[] {
   const parts: string[] = [];
   let current = '';
-  for (const line of text.split('\n')) {
-    const candidate = current ? `${current}\n${line}` : line;
+  for (const block of text.split('\n\n')) {
+    const candidate = current ? `${current}\n\n${block}` : block;
     if (candidate.length > limit && current) {
       parts.push(current);
-      current = line;
+      current = block;
     } else {
       current = candidate;
     }

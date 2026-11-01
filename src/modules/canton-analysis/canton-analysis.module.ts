@@ -18,5 +18,7 @@ import { CantonAnalysisService } from './canton-analysis.service.js';
   ],
   controllers: [CantonAnalysisController],
   providers: [CantonAnalysisService],
+  // Las alertas por Telegram leen de aquí el pronóstico de cada parroquia.
+  exports: [CantonAnalysisService],
 })
 export class CantonAnalysisModule {}

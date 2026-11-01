@@ -1,6 +1,9 @@
 import { Module } from '@nestjs/common';
 import { TelegramClient } from '../../integrations/telegram/telegram.client.js';
+import { CantonAnalysisModule } from '../canton-analysis/canton-analysis.module.js';
 import { FloodHubModule } from '../flood-hub/flood-hub.module.js';
+import { WeatherStationsModule } from '../weather-stations/weather-stations.module.js';
+import { CantonCatalog } from './canton-catalog.js';
 import { FloodAlertsService } from './flood-alerts.service.js';
 import { TelegramBotService } from './telegram-bot.service.js';
 
@@ -10,7 +13,7 @@ import { TelegramBotService } from './telegram-bot.service.js';
  * trabaja con eventos de la SNGR y suscriptores por correo.
  */
 @Module({
-  imports: [FloodHubModule],
-  providers: [TelegramClient, FloodAlertsService, TelegramBotService],
+  imports: [FloodHubModule, CantonAnalysisModule, WeatherStationsModule],
+  providers: [TelegramClient, CantonCatalog, FloodAlertsService, TelegramBotService],
 })
 export class FloodAlertsModule {}

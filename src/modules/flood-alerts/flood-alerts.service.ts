@@ -2,16 +2,21 @@ import { Injectable, Logger, type OnApplicationBootstrap, type OnApplicationShut
 import { escapeHtml } from '../../common/text/escape-html.js';
 import { AppConfigService } from '../../config/app-config.service.js';
 import { TelegramClient, TelegramError, type TelegramMessage } from '../../integrations/telegram/telegram.client.js';
-import { loadParishes, type ParishPoint } from '../canton-analysis/parishes.js';
+import { CantonAnalysisService } from '../canton-analysis/canton-analysis.service.js';
 import { FloodHubService } from '../flood-hub/flood-hub.service.js';
 import type { FlashFloodArea } from '../flood-hub/flood-hub-source.js';
 import { NotificationDeliveryEntity } from '../notifications/entities/notification-delivery.entity.js';
 import { DeliveryStore } from '../notifications/notification-stores.js';
+import { WeatherStationsService } from '../weather-stations/weather-stations.service.js';
+import { CantonCatalog } from './canton-catalog.js';
+import { withCantonRain } from './canton-rain.js';
 import { FlashFloodIssueEntity } from './entities/flash-flood-issue.entity.js';
-import { cantonsInZones } from './flash-flood-cantons.js';
+import type { TelegramChatEntity } from './entities/telegram-chat.entity.js';
+import { cantonsInZones, type CantonForecast } from './flash-flood-cantons.js';
 import { applyExpiry, applyIssue, type IssueChanges } from './flash-flood-transitions.js';
+import { filterToScope, type ChatScope } from './flood-alert-scope.js';
 import { FlashFloodIssueStore, TelegramChatStore } from './flood-alert-stores.js';
-import { improvedMessage, statusMessage, worsenedMessage } from './flood-alert-messages.js';
+import { improvedMessage, statusMessage, worsenedMessage, type AlertCanton } from './flood-alert-messages.js';
 
 const CHANNEL = 'telegram';
 /** Cada cuánto se revisa. Flood Hub tiene su propio caché de 30 minutos. */
@@ -19,6 +24,8 @@ const CHECK_MS = 5 * 60 * 1000;
 const FIRST_CHECK_DELAY_MS = 30 * 1000;
 /** Pausa entre envíos: Telegram admite unos 30 mensajes por segundo. */
 const SEND_GAP_MS = 50;
+/** La lluvia acompaña a la alerta: si tarda más que esto, la alerta sale sin ella. */
+const RAIN_TIMEOUT_MS = 20_000;
 
 const latestTime = (areas: readonly FlashFloodArea[], field: 'issuedAt' | 'validUntil') =>
   new Date(Math.max(...areas.map((area) => Date.parse(area[field]))));
@@ -34,7 +41,6 @@ export class FloodAlertsService implements OnApplicationBootstrap, OnApplication
   private firstCheck?: NodeJS.Timeout;
   private timer?: NodeJS.Timeout;
   private checking = false;
-  private parishes: Promise<ParishPoint[]> | null = null;
 
   constructor(
     private readonly floodHub: FloodHubService,
@@ -42,6 +48,9 @@ export class FloodAlertsService implements OnApplicationBootstrap, OnApplication
     private readonly chats: TelegramChatStore,
     private readonly issues: FlashFloodIssueStore,
     private readonly deliveries: DeliveryStore,
+    private readonly catalog: CantonCatalog,
+    private readonly analysis: CantonAnalysisService,
+    private readonly stations: WeatherStationsService,
     private readonly config: AppConfigService,
   ) {}
 
@@ -80,55 +89,88 @@ export class FloodAlertsService implements OnApplicationBootstrap, OnApplication
     }
   }
 
-  /** Lo vigente, para quien recién entra y para /estado. */
-  async currentStatus(): Promise<TelegramMessage> {
+  /** Lo vigente dentro de lo que eligió la persona, para /estado y al elegir. */
+  async currentStatus(scope: ChatScope): Promise<TelegramMessage> {
     const latest = await this.issues.latest();
-    return this.withMapLink({ text: statusMessage(latest?.cantons ?? [], latest?.validUntil ?? null), silent: true });
+    const cantons = await this.withRain(filterToScope(scope, latest?.cantons ?? []), latest?.zones ?? []);
+    return this.withMapLink({ text: statusMessage(cantons, latest?.validUntil ?? null, scope), silent: true });
   }
 
   private async processIssue(issuedAt: Date, zones: FlashFloodArea[], latest: FlashFloodIssueEntity | null): Promise<void> {
-    this.parishes ??= loadParishes();
-    const current = cantonsInZones(zones, await this.parishes);
+    const current = cantonsInZones(zones, await this.catalog.parishes());
     const changes = applyIssue(latest?.cantons ?? [], current);
     const validUntil = latestTime(zones, 'validUntil');
     this.logger.log(
       `Emisión de Google ${issuedAt.toISOString()}: ${current.length} cantones · ${changes.worsened.length} empeoran · ${changes.lowered.length} bajan · ${changes.left.length} salen`,
     );
-    await this.notify(issuedAt, validUntil, changes);
+    await this.notify(issuedAt, validUntil, changes, zones);
     await this.issues.save(Object.assign(new FlashFloodIssueEntity(), { issuedAt, validUntil, zones, cantons: changes.watched }));
   }
 
   private async processExpiry(latest: FlashFloodIssueEntity): Promise<void> {
     const changes = applyExpiry(latest.cantons);
     this.logger.log(`Terminó la vigencia de la emisión ${latest.issuedAt.toISOString()}: ${changes.left.length} cantones salen`);
-    await this.notify(latest.validUntil, latest.validUntil, changes);
+    await this.notify(latest.validUntil, latest.validUntil, changes, latest.zones);
     await this.issues.save(Object.assign(latest, { cantons: changes.watched }));
   }
 
-  private async notify(issuedAt: Date, validUntil: Date, changes: IssueChanges): Promise<void> {
+  private async notify(issuedAt: Date, validUntil: Date, changes: IssueChanges, zones: readonly FlashFloodArea[]): Promise<void> {
     const key = `flash-flood:${issuedAt.toISOString()}`;
-    if (changes.worsened.length > 0) {
-      const urgent = changes.worsened.some((canton) => canton.likelihood === 'highly_likely');
-      await this.broadcast(`${key}:worsened`, 'Riesgo de crecida repentina', {
-        text: worsenedMessage(changes.worsened, validUntil),
-        silent: !urgent,
+    const chats = await this.chats.listActive();
+    const worsenedWithRain = chats.length > 0 ? await this.withRain(changes.worsened, zones) : [];
+    await this.broadcast(chats, `${key}:worsened`, 'Riesgo de crecida repentina', (chat) => {
+      const worsened = filterToScope(chat, worsenedWithRain);
+      if (worsened.length === 0) return null;
+      return {
+        text: worsenedMessage(worsened, validUntil, chat),
+        silent: !worsened.some((canton) => canton.likelihood === 'highly_likely'),
+      };
+    });
+    await this.broadcast(chats, `${key}:improved`, 'Actualización de crecidas', (chat) => {
+      const lowered = filterToScope(chat, changes.lowered);
+      const left = filterToScope(chat, changes.left);
+      if (lowered.length === 0 && left.length === 0) return null;
+      return { text: improvedMessage({ lowered, left }, chat), silent: true };
+    });
+  }
+
+  /** Agrega la lluvia a los cantones. Nunca frena una alerta: si no se puede leer, sale sin cifras. */
+  private async withRain(cantons: readonly CantonForecast[], zones: readonly FlashFloodArea[]): Promise<AlertCanton[]> {
+    if (cantons.length === 0) return [];
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`sin respuesta en ${RAIN_TIMEOUT_MS / 1000} s`)), RAIN_TIMEOUT_MS);
       });
-    }
-    if (changes.lowered.length > 0 || changes.left.length > 0) {
-      await this.broadcast(`${key}:improved`, 'Actualización de crecidas', { text: improvedMessage(changes), silent: true });
+      const [analysis, stations] = await Promise.race([Promise.all([this.analysis.snapshot(), this.stations.snapshot()]), timeout]);
+      return withCantonRain(cantons, zones, analysis.parishes, stations.stations);
+    } catch (error) {
+      this.logger.warn(`Alerta sin datos de lluvia: ${(error as Error).message}`);
+      return [...cantons];
+    } finally {
+      clearTimeout(timer);
     }
   }
 
-  /** A todos los chats activos, en serie. El historial evita repetir tras un reinicio a medio envío. */
-  private async broadcast(alertKey: string, subject: string, message: TelegramMessage): Promise<void> {
-    const withLink = this.withMapLink(message);
-    const chats = await this.chats.listActive();
+  /**
+   * A cada chat, en serie, lo que le toca según lo que eligió (null = nada). El
+   * historial evita repetir tras un reinicio a medio envío.
+   */
+  private async broadcast(
+    chats: TelegramChatEntity[],
+    alertKey: string,
+    subject: string,
+    messageFor: (chat: TelegramChatEntity) => TelegramMessage | null,
+  ): Promise<void> {
     let sent = 0;
+    let attempted = 0;
     for (const chat of chats) {
-      if (await this.deliveries.wasSent(alertKey, CHANNEL, chat.chatId)) continue;
+      const message = chat.active ? messageFor(chat) : null;
+      if (!message || (await this.deliveries.wasSent(alertKey, CHANNEL, chat.chatId))) continue;
+      attempted++;
       let error: string | null = null;
       try {
-        await this.telegram.send(chat.chatId, withLink);
+        await this.telegram.send(chat.chatId, this.withMapLink(message));
         sent++;
       } catch (caught) {
         error = (caught as Error).message || 'error desconocido';
@@ -150,7 +192,7 @@ export class FloodAlertsService implements OnApplicationBootstrap, OnApplication
       );
       await new Promise((resolve) => setTimeout(resolve, SEND_GAP_MS));
     }
-    this.logger.log(`${subject}: ${sent} de ${chats.length} chats`);
+    if (attempted > 0) this.logger.log(`${subject}: ${sent} de ${attempted} chats`);
   }
 
   /** Botón al mapa, y la dirección también en el texto: al copiar o reenviar una alerta, el botón puede perderse. */

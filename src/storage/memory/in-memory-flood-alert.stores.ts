@@ -1,6 +1,7 @@
 import { Injectable, Optional } from '@nestjs/common';
 import { FlashFloodIssueEntity } from '../../modules/flood-alerts/entities/flash-flood-issue.entity.js';
 import { TelegramChatEntity } from '../../modules/flood-alerts/entities/telegram-chat.entity.js';
+import { NATIONAL } from '../../modules/flood-alerts/flood-alert-scope.js';
 import { FlashFloodIssueStore, TelegramChatStore } from '../../modules/flood-alerts/flood-alert-stores.js';
 import { JsonFilePersistence } from './json-file-persistence.js';
 
@@ -25,7 +26,8 @@ export class InMemoryTelegramChatStore extends TelegramChatStore {
     for (const stored of persistence?.load<StoredChat[]>(CHATS) ?? []) {
       this.chats.set(
         stored.chatId,
-        Object.assign(new TelegramChatEntity(), stored, { createdAt: new Date(stored.createdAt), updatedAt: new Date(stored.updatedAt) }),
+        // Quien se registró antes de poder elegir queda en todo el país.
+        Object.assign(new TelegramChatEntity(), NATIONAL, stored, { createdAt: new Date(stored.createdAt), updatedAt: new Date(stored.updatedAt) }),
       );
     }
   }
