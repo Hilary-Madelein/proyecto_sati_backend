@@ -30,6 +30,14 @@ export const RISK_LAYERS: readonly RiskLayerDefinition[] = [
     source: { kind: 'file', file: 'zonas-inundables.geojson' },
   },
   {
+    // gs://flood-forecasting/inundation_history recortado al Ecuador: tres niveles exclusivos, sin manchas de menos de 10 ha.
+    id: 'flood-history',
+    title: 'Historial de inundaciones (1999–2020)',
+    component: 'amenaza',
+    attribution: 'Google Flood Hub, a partir de GLAD (CC BY 4.0)',
+    source: { kind: 'file', file: 'inundacion-historica.geojson' },
+  },
+  {
     id: 'mass-movements',
     title: 'Movimientos en masa',
     component: 'amenaza',

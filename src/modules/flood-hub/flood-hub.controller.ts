@@ -8,8 +8,10 @@ export class FloodHubController {
   constructor(private readonly floodHub: FloodHubService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Último pronóstico de Flood Hub en cada punto del Ecuador (nivel, tendencia y ventana)' })
-  snapshot() {
-    return this.floodHub.snapshot();
+  @ApiOperation({ summary: 'Crecidas repentinas urbanas del Ecuador pronosticadas por Google (probable y muy probable)' })
+  async snapshot() {
+    // Los puntos de los ríos solo alimentan el análisis por parroquia: el mapa muestra polígonos.
+    const { gauges: _gauges, ...snapshot } = await this.floodHub.snapshot();
+    return snapshot;
   }
 }
