@@ -18,7 +18,11 @@ export class TelegramChatEntity implements ChatScope {
   @Column({ type: 'boolean', default: true })
   active: boolean;
 
-  /** Provincias elegidas. Con `cantons`, vacío = todo el país. Queda guardado hasta que lo cambie con /alertas. */
+  /** Zonas de planificación elegidas (1 a 9). Con `provinces` y `cantons` vacíos = todo el país. Queda guardado hasta que lo cambie con /alertas. */
+  @Column({ type: 'integer', array: true, default: () => "'{}'" })
+  zones: number[];
+
+  /** Provincias elegidas. */
   @Column({ type: 'text', array: true, default: () => "'{}'" })
   provinces: string[];
 

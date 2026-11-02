@@ -3,6 +3,7 @@ import type { FlashFloodArea, FlashFloodLikelihood } from '../flood-hub/flood-hu
 import type { ParishPoint } from '../canton-analysis/parishes.js';
 import { cantonsInZones, type CantonForecast } from './flash-flood-cantons.js';
 import { applyExpiry, applyIssue, type WatchedCanton } from './flash-flood-transitions.js';
+import { zoneOfCanton } from './planning-zones.js';
 
 const canton = (code: string, likelihood: FlashFloodLikelihood): CantonForecast => ({
   code,
@@ -64,6 +65,24 @@ describe('applyExpiry', () => {
     const changes = applyExpiry([watched('a', 'likely', 1), watched('b', 'highly_likely')]);
     expect(codes(changes.left)).toEqual(['a', 'b']);
     expect(changes.watched).toEqual([]);
+  });
+});
+
+describe('zoneOfCanton', () => {
+  it('reparte los cantones según las zonas de planificación', () => {
+    expect(zoneOfCanton('0901')).toBe(8); // Guayaquil
+    expect(zoneOfCanton('0907')).toBe(8); // Durán
+    expect(zoneOfCanton('0910')).toBe(5); // otro cantón de Guayas
+    expect(zoneOfCanton('1701')).toBe(9); // Quito
+    expect(zoneOfCanton('1702')).toBe(2); // otro cantón de Pichincha
+    expect(zoneOfCanton('2001')).toBe(5); // Galápagos
+    expect(zoneOfCanton('1101')).toBe(7); // Loja
+    expect(zoneOfCanton('9999')).toBeNull();
+  });
+
+  it('cada provincia está en una sola zona', () => {
+    const codes = Array.from({ length: 24 }, (_, index) => String(index + 1).padStart(2, '0'));
+    for (const code of codes) expect(zoneOfCanton(`${code}50`), code).not.toBeNull();
   });
 });
 

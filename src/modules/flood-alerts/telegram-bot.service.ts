@@ -4,6 +4,7 @@ import { TelegramClient, TelegramError, type TelegramButton, type TelegramUpdate
 import { CantonCatalog, type CatalogProvince } from './canton-catalog.js';
 import { TelegramChatEntity } from './entities/telegram-chat.entity.js';
 import { NATIONAL, scopeLabel } from './flood-alert-scope.js';
+import { PLANNING_ZONES } from './planning-zones.js';
 import { TelegramChatStore } from './flood-alert-stores.js';
 import { FloodAlertsService } from './flood-alerts.service.js';
 
@@ -11,17 +12,19 @@ import { FloodAlertsService } from './flood-alerts.service.js';
 const ERROR_PAUSE_MS = 10_000;
 const CONFLICT_PAUSE_MS = 60_000;
 
-const ALERTS_COMMAND = 'Configurar alertas: todo el país, provincias o cantones';
+const ALERTS_COMMAND = 'Configurar alertas: todo el país, zonas, provincias o cantones';
 const HELP = `Comandos:\n/alertas: ${ALERTS_COMMAND.charAt(0).toLowerCase()}${ALERTS_COMMAND.slice(1)}\n/estado: zonas de riesgo vigentes\n/parar: dejar de recibir alertas`;
-const CHOOSE = '¿Qué alertas quieres recibir? Puedes marcar varias provincias y cantones.';
+const CHOOSE = '¿Qué alertas quieres recibir? Puedes marcar varias zonas, provincias y cantones.';
 const NOT_REGISTERED = 'No estás registrado. Usa el enlace de invitación que recibiste.';
 
 /** Datos de los botones: Telegram los devuelve al tocarlos (máximo 64 bytes). */
 const MENU = 'menu';
 const DONE = 'done';
 const NATIONAL_SCOPE = 'scope:national';
+const PICK_ZONES = 'scope:zones';
 const PICK_PROVINCES = 'scope:provinces';
 const PICK_CANTONS = 'scope:cantons';
+const ZONE = 'zn:';
 const PROVINCE = 'pv:';
 const CANTONS_OF = 'cp:';
 const CANTON = 'ct:';
@@ -32,10 +35,18 @@ type CallbackQuery = NonNullable<TelegramUpdate['callback_query']>;
 const SCOPE_MENU: TelegramButton[][] = [
   [{ label: 'Todo el país', data: NATIONAL_SCOPE }],
   [
+    { label: 'Zonas', data: PICK_ZONES },
     { label: 'Provincias', data: PICK_PROVINCES },
     { label: 'Cantones', data: PICK_CANTONS },
   ],
 ];
+
+/** Qué provincias forman cada zona: va en el texto, porque no cabe en los botones. */
+const ZONES_TEXT = [
+  '<b>Marca una o más zonas de planificación y toca Listo:</b>',
+  '',
+  ...PLANNING_ZONES.map(({ number, description }) => `<b>Zona ${number}:</b> ${description}`),
+].join('\n');
 
 const DONE_BUTTON: TelegramButton = { label: 'Listo', data: DONE };
 
@@ -193,9 +204,17 @@ export class TelegramBotService implements OnApplicationBootstrap, OnApplication
       await this.chats.save(Object.assign(chat, NATIONAL));
       return this.finish(chat, messageId);
     }
+    if (data === PICK_ZONES) return this.showZones(chat, messageId);
     if (data === PICK_PROVINCES) return this.showProvinces(chat, messageId, provinces);
     if (data === PICK_CANTONS) return this.showCantonProvinces(chat, messageId, provinces);
 
+    if (data.startsWith(ZONE)) {
+      const number = Number(data.slice(ZONE.length));
+      if (!PLANNING_ZONES.some((zone) => zone.number === number)) return;
+      chat.zones = toggled(chat.zones, (zone) => zone === number, number);
+      await this.chats.save(chat);
+      return this.showZones(chat, messageId);
+    }
     if (data.startsWith(PROVINCE)) {
       const province = provinceAt(PROVINCE);
       if (!province) return;
@@ -217,6 +236,13 @@ export class TelegramBotService implements OnApplicationBootstrap, OnApplication
       await this.chats.save(chat);
       return this.showCantons(chat, messageId, province);
     }
+  }
+
+  private showZones(chat: TelegramChatEntity, messageId: number): Promise<void> {
+    const buttons = PLANNING_ZONES.map(({ number }) => ({ label: marked(chat.zones.includes(number), `Zona ${number}`), data: `${ZONE}${number}` }));
+    const rows: TelegramButton[][] = [];
+    for (let index = 0; index < buttons.length; index += 3) rows.push(buttons.slice(index, index + 3));
+    return this.telegram.editMessage(chat.chatId, messageId, ZONES_TEXT, [...rows, [{ label: '← Volver', data: MENU }, DONE_BUTTON]]);
   }
 
   private showProvinces(chat: TelegramChatEntity, messageId: number, provinces: CatalogProvince[]): Promise<void> {

@@ -35,9 +35,9 @@ const byName = (a: string, b: string) => a.localeCompare(b, 'es');
 const plural = (count: number) => (count === 1 ? '1 cantón' : `${count} cantones`);
 
 /** Se eligió un solo cantón: su nivel lo dice todo. */
-const isSingleCanton = (scope: ChatScope) => scope.cantons.length === 1 && scope.provinces.length === 0;
+const isSingleCanton = (scope: ChatScope) => scope.cantons.length === 1 && scope.provinces.length === 0 && scope.zones.length === 0;
 /** Se eligió una sola provincia: no hace falta repetir su nombre. */
-const isSingleProvince = (scope: ChatScope) => scope.provinces.length === 1 && scope.cantons.length === 0;
+const isSingleProvince = (scope: ChatScope) => scope.provinces.length === 1 && scope.cantons.length === 0 && scope.zones.length === 0;
 
 /** Sin decimales: a esta escala serían falsa precisión. */
 const mm = (value: number) => `${value > 0 && value < 1 ? '&lt;1' : Math.round(value)} mm`;
@@ -112,7 +112,7 @@ export function worsenedMessage(cantons: readonly AlertCanton[], validUntil: Dat
     ...summaryLine(cantons, scope),
   ].join('\n');
 
-  const onlyCantons = scope.cantons.length > 0 && scope.provinces.length === 0;
+  const onlyCantons = scope.cantons.length > 0 && scope.provinces.length === 0 && scope.zones.length === 0;
   const notes = [...(isSingleCanton(scope) ? [] : rainNotes(cantons)), ...(onlyCantons ? [PRECISION_NOTE] : []), SOURCE_NOTE].join('\n');
   if (isSingleCanton(scope) && cantons[0]) return [header, ...singleCantonBlocks(cantons[0]), notes].join('\n\n');
 

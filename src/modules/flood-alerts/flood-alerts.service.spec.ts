@@ -115,9 +115,9 @@ describe('alertas de crecidas por Telegram', () => {
 
   it('cada persona recibe solo lo que eligió, y nada si no le toca', async () => {
     await addChat('pais');
-    await addChat('guayas', { provinces: ['Guayas'], cantons: [] });
-    await addChat('machala', { provinces: [], cantons: [{ code: '0701', name: 'Machala', province: 'El Oro' }] });
-    await addChat('loja', { provinces: ['Loja'], cantons: [] });
+    await addChat('guayas', { zones: [], provinces: ['Guayas'], cantons: [] });
+    await addChat('machala', { zones: [], provinces: [], cantons: [{ code: '0701', name: 'Machala', province: 'El Oro' }] });
+    await addChat('loja', { zones: [], provinces: ['Loja'], cantons: [] });
     await service.check(NOON);
 
     const textOf = (chatId: string) => sent.find((item) => item.chatId === chatId)?.message.text;
@@ -133,15 +133,28 @@ describe('alertas de crecidas por Telegram', () => {
   });
 
   it('con varios lugares elegidos, lista por provincia solo los suyos', async () => {
-    await addChat('dos', { provinces: ['Guayas', 'Loja'], cantons: [] });
+    await addChat('dos', { zones: [], provinces: ['Guayas', 'Loja'], cantons: [] });
     await service.check(NOON);
     expect(sent[0].message.text).toContain('<b>Guayas · 1</b>\nGuayaquil');
     expect(sent[0].message.text).not.toContain('Machala');
   });
 
+  it('Guayaquil es Zona 8, no Zona 5, aunque esté en Guayas', async () => {
+    await addChat('zona5', { zones: [5], provinces: [], cantons: [] });
+    await addChat('zona8', { zones: [8], provinces: [], cantons: [] });
+    await addChat('zona7', { zones: [7], provinces: [], cantons: [] });
+    await service.check(NOON);
+    const textOf = (chatId: string) => sent.find((item) => item.chatId === chatId)?.message.text;
+    expect(textOf('zona5')).toBeUndefined();
+    expect(textOf('zona8')).toContain('crecida repentina en la Zona 8');
+    expect(textOf('zona8')).toContain('Guayaquil');
+    expect(textOf('zona7')).toContain('Machala');
+    expect(textOf('zona7')).not.toContain('Guayaquil');
+  });
+
   it('una mejora también respeta lo elegido', async () => {
-    await addChat('guayas', { provinces: ['Guayas'], cantons: [] });
-    await addChat('loja', { provinces: ['Loja'], cantons: [] });
+    await addChat('guayas', { zones: [], provinces: ['Guayas'], cantons: [] });
+    await addChat('loja', { zones: [], provinces: ['Loja'], cantons: [] });
     await service.check(NOON);
     snapshot.flashFloods = [];
     await service.check(new Date('2026-11-02T13:00:00Z'));
@@ -161,7 +174,7 @@ describe('alertas de crecidas por Telegram', () => {
   });
 
   it('con un solo cantón dice de dónde sale cada cifra', async () => {
-    await addChat('1', { provinces: [], cantons: [{ code: '0901', name: 'Guayaquil', province: 'Guayas' }] });
+    await addChat('1', { zones: [], provinces: [], cantons: [{ code: '0901', name: 'Guayaquil', province: 'Guayas' }] });
     await service.check(NOON);
     const { text } = sent[0].message;
     expect(text).toContain('Pronóstico 24 h: hasta 95 mm (WRF-INAMHI)');
@@ -256,7 +269,7 @@ describe('alertas de crecidas por Telegram', () => {
       expect(await chats.find('7')).toMatchObject({ active: true, firstName: 'Ana', provinces: [], cantons: [] });
       expect(sent).toHaveLength(2);
       expect(sent[1].message.text).toContain('¿Qué alertas quieres recibir?');
-      expect(sent[1].message.buttons?.flat().map(({ label }) => label)).toEqual(['Todo el país', 'Provincias', 'Cantones']);
+      expect(sent[1].message.buttons?.flat().map(({ label }) => label)).toEqual(['Todo el país', 'Zonas', 'Provincias', 'Cantones']);
     });
 
     it('al marcar una provincia queda guardada y rige para las alertas futuras', async () => {
@@ -264,7 +277,7 @@ describe('alertas de crecidas por Telegram', () => {
       await bot.handle(tap(button('Provincias')));
       await bot.handle(tap(button('Guayas')));
       await bot.handle(tap(button('Listo')));
-      expect(await chats.find('7')).toMatchObject({ provinces: ['Guayas'], cantons: [] });
+      expect(await chats.find('7')).toMatchObject({ zones: [], provinces: ['Guayas'], cantons: [] });
       expect(editMessage.mock.calls.at(-1)?.[2]).toContain('Recibirás alertas de: Guayas.');
 
       sent.length = 0;
@@ -279,7 +292,7 @@ describe('alertas de crecidas por Telegram', () => {
       await bot.handle(tap(button('Cantones')));
       await bot.handle(tap(button('El Oro')));
       await bot.handle(tap(button('Machala')));
-      expect(await chats.find('7')).toMatchObject({ provinces: [], cantons: [{ code: '0701', name: 'Machala', province: 'El Oro' }] });
+      expect(await chats.find('7')).toMatchObject({ zones: [], provinces: [], cantons: [{ code: '0701', name: 'Machala', province: 'El Oro' }] });
     });
 
     it('permite marcar varias provincias y cantones juntos, y recibe solo eso', async () => {
@@ -308,18 +321,35 @@ describe('alertas de crecidas por Telegram', () => {
       await bot.handle(tap(button('Guayas')));
       expect(button('✅ Guayas')).toBeTruthy();
       await bot.handle(tap(button('✅ Guayas')));
-      expect(await chats.find('7')).toMatchObject({ provinces: [] });
+      expect(await chats.find('7')).toMatchObject({ zones: [], provinces: [] });
+    });
+
+    it('al marcar zonas recibe solo lo de esas zonas', async () => {
+      await bot.handle(text(`/start ${INVITE}`));
+      await bot.handle(tap(button('Zonas')));
+      expect(editMessage.mock.calls.at(-1)?.[2]).toContain('<b>Zona 8:</b> Guayaquil, Durán, Samborondón');
+      await bot.handle(tap(button('Zona 7')));
+      await bot.handle(tap(button('Zona 8')));
+      expect(button('✅ Zona 7')).toBeTruthy();
+      await bot.handle(tap(button('Listo')));
+      expect(await chats.find('7')).toMatchObject({ zones: [7, 8] });
+      expect(editMessage.mock.calls.at(-1)?.[2]).toContain('Recibirás alertas de: Zona 7, Zona 8.');
+
+      sent.length = 0;
+      await service.check(NOON);
+      expect(sent[0].message.text).toContain('Guayaquil');
+      expect(sent[0].message.text).toContain('Machala');
     });
 
     it('Todo el país borra lo marcado', async () => {
-      await addChat('7', { provinces: ['Guayas'], cantons: [{ code: '0701', name: 'Machala', province: 'El Oro' }] });
+      await addChat('7', { zones: [], provinces: ['Guayas'], cantons: [{ code: '0701', name: 'Machala', province: 'El Oro' }] });
       await bot.handle(tap('scope:national'));
-      expect(await chats.find('7')).toMatchObject({ provinces: [], cantons: [] });
+      expect(await chats.find('7')).toMatchObject({ zones: [], provinces: [], cantons: [] });
     });
 
     it('/estado muestra solo lo elegido', async () => {
       await service.check(NOON);
-      await addChat('7', { provinces: ['Guayas'], cantons: [] });
+      await addChat('7', { zones: [], provinces: ['Guayas'], cantons: [] });
       await bot.handle(text('/estado'));
       expect(sent.at(-1)?.message.text).toContain('Guayaquil');
       expect(sent.at(-1)?.message.text).not.toContain('Machala');
@@ -327,13 +357,13 @@ describe('alertas de crecidas por Telegram', () => {
 
     it('si en su provincia no hay riesgo, lo dice', async () => {
       await service.check(NOON);
-      await addChat('7', { provinces: ['Loja'], cantons: [] });
+      await addChat('7', { zones: [], provinces: ['Loja'], cantons: [] });
       await bot.handle(text('/estado'));
       expect(sent.at(-1)?.message.text).toContain('no marca riesgo de crecida repentina en Loja');
     });
 
     it('lo elegido se conserva tras /parar y volver', async () => {
-      await addChat('7', { provinces: ['Loja'], cantons: [] });
+      await addChat('7', { zones: [], provinces: ['Loja'], cantons: [] });
       await bot.handle(text('/parar'));
       await bot.handle(text('/start'));
       expect(await chats.find('7')).toMatchObject({ active: true, provinces: ['Loja'] });
@@ -353,10 +383,10 @@ describe('alertas de crecidas por Telegram', () => {
       } as unknown as JsonFilePersistence;
       const before = new InMemoryTelegramChatStore(persistence);
       await before.save(Object.assign(new TelegramChatEntity(), { chatId: '7', active: true, provinces: ['Guayas'], cantons: [] }));
-      expect(await new InMemoryTelegramChatStore(persistence).find('7')).toMatchObject({ provinces: ['Guayas'] });
+      expect(await new InMemoryTelegramChatStore(persistence).find('7')).toMatchObject({ zones: [], provinces: ['Guayas'] });
 
       files.set('telegram-chats', [{ chatId: '8', active: true, createdAt: '2026-11-01T00:00:00Z', updatedAt: '2026-11-01T00:00:00Z' }]);
-      expect(await new InMemoryTelegramChatStore(persistence).find('8')).toMatchObject({ provinces: [], cantons: [] });
+      expect(await new InMemoryTelegramChatStore(persistence).find('8')).toMatchObject({ zones: [], provinces: [], cantons: [] });
     });
 
     it('rechaza el /start sin el código o con uno equivocado', async () => {

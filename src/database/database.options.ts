@@ -14,6 +14,7 @@ import { EventFloodDetails1791936000000 } from './migrations/1791936000000-event
 import { EventDamage1792022400000 } from './migrations/1792022400000-event-damage.js';
 import { FloodAlerts1793491200000 } from './migrations/1793491200000-flood-alerts.js';
 import { TelegramChatScope1793577600000 } from './migrations/1793577600000-telegram-chat-scope.js';
+import { TelegramChatZones1793664000000 } from './migrations/1793664000000-telegram-chat-zones.js';
 
 /**
  * Entidades y migraciones se listan explícitamente (sin patrones de archivos):
@@ -37,6 +38,7 @@ export const MIGRATIONS = [
   EventDamage1792022400000,
   FloodAlerts1793491200000,
   TelegramChatScope1793577600000,
+  TelegramChatZones1793664000000,
 ];
 
 export function buildDataSourceOptions(databaseUrl: string, ssl: boolean): DataSourceOptions {
