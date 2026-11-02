@@ -34,6 +34,28 @@ Con `STORAGE=memory`, ejecuta `npm run admin:create` con el servidor detenido.
 
   y en `.env`: `STORAGE=postgres` y `DATABASE_URL=...`.
 
+**En producción: Supabase.** Con `memory`, cada despliegue o reinicio borra lo guardado en disco (en Render, también
+los chats de Telegram). Solo hace falta configurar la conexión:
+
+1. Crea el proyecto en [Supabase](https://supabase.com) y copia su contraseña de base de datos.
+2. En **Connect**, copia la URI del **Session pooler** (puerto `5432`, usuario `postgres.<ref>`). No uses el
+   *Transaction pooler* (`6543`): pierde los bloqueos de sesión de la ingesta (`pg_try_advisory_lock`). La conexión
+   directa solo tiene IPv6 en el plan gratuito. Si la contraseña tiene caracteres especiales, va codificada en la URI.
+3. Crea la cuenta de administración (también aplica las migraciones). La URI no queda en el historial:
+
+   ```bash
+   read -rs DATABASE_URL && export DATABASE_URL
+   STORAGE=postgres DATABASE_SSL=true npm run admin:create
+   unset DATABASE_URL
+   ```
+
+4. En Render, agrega `STORAGE=postgres`, `DATABASE_URL=<la URI>` y `DATABASE_SSL=true`, y despliega.
+
+Al arrancar se aplican las migraciones (incluida la extensión PostGIS; si Supabase la rechaza, actívala en
+**Database → Extensions**) y la ingesta carga los últimos `SNGR_BACKFILL_DAYS` días (30 por defecto).
+
+`.data/` es solo la copia local del modo `memory`: no se versiona, porque guarda cuentas de administración y destinatarios.
+
 El dominio solo depende de los contratos `EventStore`, `SyncRunStore` y `SourceLock`;
 `src/storage/memory` y `src/storage/postgres` los implementan.
 
