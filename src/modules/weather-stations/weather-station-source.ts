@@ -22,6 +22,15 @@ export interface HourlyRain {
 }
 
 /**
+ * Historial propio de la lluvia horaria, para llegar más atrás de lo que guarda
+ * la fuente. Lluvia de cada hora en (`since`, `until`], por id de estación, de la
+ * más antigua a la más reciente.
+ */
+export abstract class StationRainArchive {
+  abstract getHourlyRain(since: Date, until: Date): Promise<Map<number, HourlyRain[]>>;
+}
+
+/**
  * Contrato de una red de estaciones con lluvia horaria. Hoy la implementa la
  * API del INAMHI; otra red solo tiene que cumplir este contrato.
  */

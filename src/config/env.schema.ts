@@ -136,6 +136,12 @@ export const envSchema = z.object({
     .optional()
     .or(z.literal('').transform(() => undefined)),
 
+  /**
+   * Archivo propio de la lluvia horaria de las estaciones (repositorio público
+   * sati-archivo-lluvia): un CSV por mes, AAAA-MM.csv. La API solo guarda 12 h.
+   */
+  INAMHI_RAIN_ARCHIVE_URL: z.url().default('https://raw.githubusercontent.com/Hilary-Madelein/sati-archivo-lluvia/main/estaciones/lluvia_horaria'),
+
   // ── Caudales ─────────────────────────────────────────────────────────────
   /** API pública de GEOGLOWS (pronóstico de caudal por tramo de río). */
   GEOGLOWS_API_URL: z.url().default('https://geoglows.ecmwf.int/api/v2'),

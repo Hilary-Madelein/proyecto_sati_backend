@@ -26,6 +26,12 @@ export const NATIONAL: ChatScope = { zones: [], provinces: [], cantons: [] };
 const choices = (chat: ChatScope) => chat.zones.length + chat.provinces.length + chat.cantons.length;
 
 export const isNational = (chat: ChatScope) => choices(chat) === 0;
+/** Solo marcó cantones, uno o varios. */
+export const isOnlyCantons = (chat: ChatScope) => chat.cantons.length > 0 && chat.provinces.length === 0 && chat.zones.length === 0;
+/** Marcó un solo cantón y nada más. */
+export const isSingleCanton = (chat: ChatScope) => isOnlyCantons(chat) && chat.cantons.length === 1;
+/** Solo marcó provincias, una o varias. */
+export const isOnlyProvinces = (chat: ChatScope) => chat.provinces.length > 0 && chat.cantons.length === 0 && chat.zones.length === 0;
 
 export function inScope(chat: ChatScope, canton: Pick<CantonForecast, 'code' | 'province'>): boolean {
   if (isNational(chat)) return true;

@@ -59,4 +59,22 @@ describe('reportes de novedad vial del MIT', () => {
     expect(a.properties).toMatchObject({ Causa: 'Deslizamiento', Instituciones: 'MIT, GAD cantonal' });
     expect(b.properties).toMatchObject({ Causa: 'Hundimiento de calzada', Instituciones: null });
   });
+
+  it('colorea por la condición de la vía hasta que se cierre el evento', () => {
+    const [open, partial, closed, unanswered] = annotateRoadClosures([
+      report({ cond_via: 'Cierre total', estd_atencion: 'Trabajos en ejecución' }),
+      report({ cond_via: 'Habilitado un carril', estd_atencion: 'Habilitado parcialmente' }),
+      report({ cond_via: 'Cierre total', estd_atencion: 'Habilitada - Evento Cerrado' }),
+      report({ cond_via: 'Cierre total', estd_atencion: null }),
+    ]);
+    expect(open.properties.Condicion_mapa).toBe('Cierre total');
+    expect(partial.properties.Condicion_mapa).toBe('Habilitado un carril');
+    expect(closed.properties.Condicion_mapa).toBe('Evento cerrado');
+    expect(unanswered.properties.Condicion_mapa).toBe('Cierre total');
+  });
+
+  it('limpia los espacios del tramo', () => {
+    const [road] = annotateRoadClosures([report({ nombre_via: 'SELVA  ALEGRE - DESVÍO  A SAN JOSÉ' })]);
+    expect(road.properties).toMatchObject({ nombre_via: 'SELVA ALEGRE - DESVÍO A SAN JOSÉ' });
+  });
 });

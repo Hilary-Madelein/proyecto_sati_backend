@@ -1,4 +1,5 @@
 import type { GeoJsonFeature } from '../../integrations/arcgis/arcgis-feature-layer.js';
+import { normalizeText } from '../canton-analysis/preparedness.js';
 
 /**
  * Nombres de las opciones de las encuestas de acciones preventivas y de respuesta
@@ -102,10 +103,15 @@ export function annotateResponseActions(features: GeoJsonFeature[]): GeoJsonFeat
   });
 }
 
+/** Opción de "Estado de atención" con la que la dirección distrital cierra el evento. */
+const EVENT_CLOSED = 'Habilitada - Evento Cerrado';
+
 /**
  * Agrega a cada reporte de novedad vial `Causa` e `Instituciones` con sus
  * nombres (la encuesta guarda códigos como en las de acciones: "deslizamiento",
- * "mit_mtop"), con lo escrito en "otro" cuando se eligió esa opción.
+ * "mit_mtop"), con lo escrito en "otro" cuando se eligió esa opción, y `Condicion_mapa`,
+ * con la que se colorea: la condición de la vía hasta que se cierre el evento. El tramo
+ * llega con espacios de más ("SELVA  ALEGRE").
  */
 export function annotateRoadClosures(features: GeoJsonFeature[]): GeoJsonFeature[] {
   return features.map((feature) => {
@@ -114,8 +120,10 @@ export function annotateRoadClosures(features: GeoJsonFeature[]): GeoJsonFeature
       ...feature,
       properties: {
         ...p,
+        nombre_via: typeof p.nombre_via === 'string' ? p.nombre_via.replace(/\s+/g, ' ') : p.nombre_via,
         Causa: choices(p.causa, EVENTS, p.otro_evento),
         Instituciones: choices(p.insti_involucradas, INSTITUTIONS, p.otra_insti_invu),
+        Condicion_mapa: p.estd_atencion === EVENT_CLOSED ? 'Evento cerrado' : p.cond_via,
       },
     };
   });

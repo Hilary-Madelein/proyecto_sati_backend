@@ -1,6 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppConfigService } from '../../config/app-config.service.js';
-import { splitText, TelegramError, type TelegramClient, type TelegramMessage } from '../../integrations/telegram/telegram.client.js';
+import { splitText, TelegramClient, TelegramError, type TelegramMessage } from '../../integrations/telegram/telegram.client.js';
 import { InMemoryFlashFloodIssueStore, InMemoryTelegramChatStore } from '../../storage/memory/in-memory-flood-alert.stores.js';
 import { InMemoryDeliveryStore } from '../../storage/memory/in-memory-notification.stores.js';
 import type { JsonFilePersistence } from '../../storage/memory/json-file-persistence.js';
@@ -11,13 +11,16 @@ import type { WeatherStationsService } from '../weather-stations/weather-station
 import { CantonCatalog } from './canton-catalog.js';
 import { TelegramChatEntity } from './entities/telegram-chat.entity.js';
 import { NATIONAL, type ChatScope } from './flood-alert-scope.js';
-import { improvedMessage, worsenedMessage } from './flood-alert-messages.js';
+import { groupMessage, improvedMessage, parishMessage, worsenedMessage } from './flood-alert-messages.js';
 import { FloodAlertsService } from './flood-alerts.service.js';
 import { TelegramBotService } from './telegram-bot.service.js';
 
 vi.mock('../canton-analysis/parishes.js', () => ({
   loadParishes: async () => [
-    { code: '091', name: 'A', cantonCode: '0901', canton: 'Guayaquil', province: 'Guayas', kind: 'cabecera', lat: -2.5, lng: -79.5 },
+    { code: '090101', name: 'Pascuales', cantonCode: '0901', canton: 'Guayaquil', province: 'Guayas', kind: 'urbana', lat: -2.5, lng: -79.5 },
+    { code: '090102', name: 'Tarqui', cantonCode: '0901', canton: 'Guayaquil', province: 'Guayas', kind: 'urbana', lat: -2.6, lng: -79.5 },
+    // Fuera de la zona de Google: no debe aparecer en el desglose.
+    { code: '090103', name: 'Lejana', cantonCode: '0901', canton: 'Guayaquil', province: 'Guayas', kind: 'rural', lat: -1, lng: -79.5 },
     { code: '070', name: 'B', cantonCode: '0701', canton: 'Machala', province: 'El Oro', kind: 'cabecera', lat: -2.6, lng: -79.6 },
     { code: '110', name: 'C', cantonCode: '1101', canton: 'Loja', province: 'Loja', kind: 'cabecera', lat: -4, lng: -79.2 },
   ],
@@ -88,9 +91,9 @@ describe('alertas de crecidas por Telegram', () => {
     const stations = {
       snapshot: async () => ({
         stations: [
-          { name: 'Cerca', lat: -2.52, lng: -79.5, totalMm: 3.25, hoursWithData: 12 },
-          { name: 'Pocas horas', lat: -2.5, lng: -79.5, totalMm: 50, hoursWithData: 2 },
-          { name: 'Lejos', lat: -2.6, lng: -78.5, totalMm: 80, hoursWithData: 12 },
+          { name: 'Cerca', lat: -2.52, lng: -79.5, last12h: { totalMm: 3.25, hoursWithData: 12 } },
+          { name: 'Pocas horas', lat: -2.5, lng: -79.5, last12h: { totalMm: 50, hoursWithData: 2 } },
+          { name: 'Lejos', lat: -2.6, lng: -78.5, last12h: { totalMm: 80, hoursWithData: 12 } },
         ],
       }),
     } as unknown as WeatherStationsService;
@@ -103,7 +106,7 @@ describe('alertas de crecidas por Telegram', () => {
     await service.check(NOON);
     await service.check(NOON);
     expect(sent).toHaveLength(1);
-    expect(sent[0].message.text).toContain('Guayaquil');
+    expect(sent[0].message.text).toContain('Zona 8');
   });
 
   it('cada alerta lleva al mapa con botón y con la dirección en el texto', async () => {
@@ -121,22 +124,23 @@ describe('alertas de crecidas por Telegram', () => {
     await service.check(NOON);
 
     const textOf = (chatId: string) => sent.find((item) => item.chatId === chatId)?.message.text;
-    expect(textOf('pais')).toContain('Guayaquil');
-    expect(textOf('pais')).toContain('Machala');
+    expect(textOf('pais')).toContain('<b>Zona 8</b> (Guayas)');
+    expect(textOf('pais')).toContain('<b>Zona 7</b> (El Oro)');
     expect(textOf('guayas')).toContain('crecida repentina en Guayas');
-    expect(textOf('guayas')).toContain('Guayaquil');
-    expect(textOf('guayas')).not.toContain('Machala');
+    expect(textOf('guayas')).toContain('<b>Guayas</b> · 1 cantón');
+    expect(textOf('guayas')).not.toContain('El Oro');
     expect(textOf('machala')).toContain('crecida repentina en Machala');
     expect(textOf('machala')).not.toContain('cantón');
     expect(textOf('machala')).toContain('zonas de unos 20 km');
     expect(textOf('loja')).toBeUndefined();
   });
 
-  it('con varios lugares elegidos, lista por provincia solo los suyos', async () => {
+  it('con varias provincias elegidas, resume por provincia solo las suyas', async () => {
     await addChat('dos', { zones: [], provinces: ['Guayas', 'Loja'], cantons: [] });
     await service.check(NOON);
-    expect(sent[0].message.text).toContain('<b>Guayas · 1</b>\nGuayaquil');
-    expect(sent[0].message.text).not.toContain('Machala');
+    expect(sent[0].message.text).toContain('<b>Guayas</b> · 1 cantón');
+    expect(sent[0].message.text).not.toContain('El Oro');
+    expect(sent[0].message.buttons).toEqual([[{ label: 'Desglosar Guayas', data: 'dr:p09' }]]);
   });
 
   it('Guayaquil es Zona 8, no Zona 5, aunque esté en Guayas', async () => {
@@ -147,9 +151,9 @@ describe('alertas de crecidas por Telegram', () => {
     const textOf = (chatId: string) => sent.find((item) => item.chatId === chatId)?.message.text;
     expect(textOf('zona5')).toBeUndefined();
     expect(textOf('zona8')).toContain('crecida repentina en la Zona 8');
-    expect(textOf('zona8')).toContain('Guayaquil');
-    expect(textOf('zona7')).toContain('Machala');
-    expect(textOf('zona7')).not.toContain('Guayaquil');
+    expect(textOf('zona8')).toContain('<b>Zona 8</b> (Guayas)');
+    expect(textOf('zona7')).toContain('<b>Zona 7</b> (El Oro)');
+    expect(textOf('zona7')).not.toContain('Guayas');
   });
 
   it('una mejora también respeta lo elegido', async () => {
@@ -166,11 +170,14 @@ describe('alertas de crecidas por Telegram', () => {
     await addChat('1');
     await service.check(NOON);
     const { text } = sent[0].message;
-    expect(text).toContain('Guayaquil · 95 mm · 🌧️ 3 mm');
+    expect(text).toContain('<b>Zona 8</b> (Guayas) · 1 cantón · hasta 95 mm');
     expect(text).not.toContain('300');
-    expect(text).toContain('Machala');
     expect(text).toContain('mm: lluvia pronosticada para 24 h');
-    expect(text).toContain('🌧️: lluvia ya medida');
+
+    const zone8 = await service.drillDown(NATIONAL, 'z8');
+    expect(zone8?.text).toContain('Guayaquil · 95 mm · 🌧️ 3 mm');
+    expect(zone8?.text).not.toContain('300');
+    expect(zone8?.text).toContain('🌧️: lluvia ya medida');
   });
 
   it('con un solo cantón dice de dónde sale cada cifra', async () => {
@@ -186,7 +193,7 @@ describe('alertas de crecidas por Telegram', () => {
     analysisSnapshot.mockRejectedValue(new Error('WRF caído'));
     await service.check(NOON);
     expect(sent).toHaveLength(1);
-    expect(sent[0].message.text).toContain('Guayaquil');
+    expect(sent[0].message.text).toContain('Zona 8');
     expect(sent[0].message.text).not.toContain('mm');
     expect(sent[0].message.text).not.toContain('lluvia pronosticada');
   });
@@ -283,8 +290,8 @@ describe('alertas de crecidas por Telegram', () => {
       sent.length = 0;
       await service.check(NOON);
       expect(sent).toHaveLength(1);
-      expect(sent[0].message.text).toContain('Guayaquil');
-      expect(sent[0].message.text).not.toContain('Machala');
+      expect(sent[0].message.text).toContain('<b>Guayas</b>');
+      expect(sent[0].message.text).not.toContain('El Oro');
     });
 
     it('al marcar un cantón pasa por su provincia', async () => {
@@ -311,8 +318,8 @@ describe('alertas de crecidas por Telegram', () => {
       sent.length = 0;
       await service.check(NOON);
       expect(sent).toHaveLength(1);
-      expect(sent[0].message.text).toContain('Guayaquil');
-      expect(sent[0].message.text).toContain('Machala');
+      expect(sent[0].message.text).toContain('<b>Zona 8</b> (Guayas)');
+      expect(sent[0].message.text).toContain('<b>Zona 7</b> (El Oro)');
     });
 
     it('marca lo elegido en los botones, y un segundo toque lo desmarca', async () => {
@@ -337,8 +344,8 @@ describe('alertas de crecidas por Telegram', () => {
 
       sent.length = 0;
       await service.check(NOON);
-      expect(sent[0].message.text).toContain('Guayaquil');
-      expect(sent[0].message.text).toContain('Machala');
+      expect(sent[0].message.text).toContain('<b>Zona 8</b> (Guayas)');
+      expect(sent[0].message.text).toContain('<b>Zona 7</b> (El Oro)');
     });
 
     it('Todo el país borra lo marcado', async () => {
@@ -347,12 +354,117 @@ describe('alertas de crecidas por Telegram', () => {
       expect(await chats.find('7')).toMatchObject({ zones: [], provinces: [], cantons: [] });
     });
 
+    describe('desglose', () => {
+      const lastEdit = () => editMessage.mock.calls.at(-1) as [string, number, string, { label: string; data: string }[][] | undefined, unknown];
+      const tapButton = async (label: string) => bot.handle(tap(button(label)));
+
+      it('baja de zona a cantón y a parroquia editando el mismo mensaje, y vuelve', async () => {
+        await addChat('7');
+        await service.check(NOON);
+        expect(sent).toHaveLength(1);
+        const alert = sent[0].message;
+        expect(alert.text).not.toContain('Guayaquil');
+        expect(alert.buttons?.flat().map(({ label }) => label)).toEqual(['Desglosar Zona 7', 'Desglosar Zona 8']);
+        expect(alert.link).toEqual({ label: 'Ver en el mapa', url: MAP_URL });
+
+        await tapButton('Desglosar Zona 8');
+        expect(lastEdit()[0]).toBe('7');
+        expect(lastEdit()[1]).toBe(50);
+        expect(lastEdit()[2]).toContain('Guayaquil · 95 mm');
+        expect(lastEdit()[2]).not.toContain('Machala');
+        expect(lastEdit()[4]).toEqual({ label: 'Ver en el mapa', url: MAP_URL });
+
+        await tapButton('Guayaquil');
+        expect(lastEdit()[2]).toContain('Guayaquil · Guayas');
+        expect(lastEdit()[2]).toContain('Tarqui · 95 mm\nPascuales · 40 mm');
+        expect(lastEdit()[2]).not.toContain('Lejana');
+        expect(lastEdit()[2]).toContain('zonas de unos 20 km');
+
+        await tapButton('← Zona 8');
+        expect(lastEdit()[2]).toContain('Guayaquil · 95 mm');
+        await tapButton('← Zonas');
+        expect(lastEdit()[2]).toContain('<b>Zona 8</b> (Guayas)');
+        expect(sent).toHaveLength(1);
+      });
+
+      it('con una provincia elegida baja por sus cantones, y con cantones sueltos empieza en ellos', async () => {
+        await addChat('7', { zones: [], provinces: ['Guayas'], cantons: [] });
+        await addChat('8', {
+          zones: [],
+          provinces: [],
+          cantons: [
+            { code: '0901', name: 'Guayaquil', province: 'Guayas' },
+            { code: '0701', name: 'Machala', province: 'El Oro' },
+          ],
+        });
+        await service.check(NOON);
+        await bot.handle(tap('dr:p09'));
+        expect(lastEdit()[2]).toContain('Guayaquil');
+        expect(lastEdit()[3]?.flat().map(({ label }) => label)).toEqual(['Guayaquil', '← Provincias']);
+
+        const message = sent.find(({ chatId }) => chatId === '8')!.message;
+        expect(message.text).toContain('Guayaquil · 95 mm');
+        expect(message.buttons?.flat().map(({ label }) => label)).toEqual(['Guayaquil', 'Machala']);
+        await bot.handle(tap('dr:c0901', 8));
+        expect(lastEdit()[3]?.flat().map(({ label }) => label)).toEqual(['← Cantones']);
+      });
+
+      it('con un solo cantón elegido pasa directo a sus parroquias', async () => {
+        await addChat('7', { zones: [], provinces: [], cantons: [{ code: '0901', name: 'Guayaquil', province: 'Guayas' }] });
+        await service.check(NOON);
+        expect(sent[0].message.buttons).toEqual([[{ label: 'Desglosar por parroquia', data: 'dr:c0901' }]]);
+        await bot.handle(tap('dr:c0901'));
+        expect(lastEdit()[2]).toContain('Tarqui');
+        expect(lastEdit()[3]?.flat().map(({ label }) => label)).toEqual(['← Volver']);
+      });
+
+      it('no muestra lugares fuera de lo elegido ni reemplaza la alerta si ya no hay riesgo', async () => {
+        await addChat('7', { zones: [], provinces: ['Guayas'], cantons: [] });
+        await service.check(NOON);
+        await bot.handle(tap('dr:c0701'));
+        await bot.handle(tap('dr:p07'));
+        expect(editMessage).not.toHaveBeenCalled();
+        expect(sent.at(-1)?.message.text).toContain('ya no tiene riesgo vigente');
+      });
+
+      it('un cantón con aviso sin parroquias en la última emisión lo dice', async () => {
+        await addChat('7');
+        await service.check(NOON);
+        snapshot.flashFloods = [{ ...zone('likely', '2026-11-01T18:00:00Z', '2026-11-02T18:00:00Z'), geometry: { type: 'MultiPolygon', coordinates: [] } }];
+        await service.check(NOON);
+        await bot.handle(tap('dr:c0901'));
+        expect(lastEdit()[2]).toContain('ninguna parroquia de este cantón');
+      });
+
+      it('si no hay lluvia, las parroquias salen igual, sin cifras', async () => {
+        await addChat('7');
+        await service.check(NOON);
+        analysisSnapshot.mockRejectedValue(new Error('WRF caído'));
+        await bot.handle(tap('dr:c0901'));
+        expect(lastEdit()[2]).toContain('Tarqui');
+        expect(lastEdit()[2]).not.toContain('mm');
+      });
+
+      it('los botones del desglose no sirven a quien no está registrado', async () => {
+        await service.check(NOON);
+        await bot.handle(tap('dr:c0901'));
+        expect(lastEdit()[2]).toBe('No estás registrado. Usa el enlace de invitación que recibiste.');
+      });
+
+      it('/estado también llega resumido, con botones', async () => {
+        await service.check(NOON);
+        await addChat('7');
+        await bot.handle(text('/estado'));
+        expect(sent.at(-1)?.message.buttons?.flat().map(({ label }) => label)).toEqual(['Desglosar Zona 7', 'Desglosar Zona 8']);
+      });
+    });
+
     it('/estado muestra solo lo elegido', async () => {
       await service.check(NOON);
       await addChat('7', { zones: [], provinces: ['Guayas'], cantons: [] });
       await bot.handle(text('/estado'));
-      expect(sent.at(-1)?.message.text).toContain('Guayaquil');
-      expect(sent.at(-1)?.message.text).not.toContain('Machala');
+      expect(sent.at(-1)?.message.text).toContain('<b>Guayas</b>');
+      expect(sent.at(-1)?.message.text).not.toContain('El Oro');
     });
 
     it('si en su provincia no hay riesgo, lo dice', async () => {
@@ -424,39 +536,101 @@ describe('alertas de crecidas por Telegram', () => {
   });
 });
 
-describe('mensajes', () => {
-  const canton = (name: string, province: string, likelihood: FlashFloodLikelihood) => ({ code: name, canton: name, province, likelihood });
+describe('TelegramClient', () => {
+  const client = new TelegramClient({ get: () => 'token' } as unknown as AppConfigService);
+  const button = { label: 'Desglosar', data: 'dr:z5' };
+  const link = { label: 'Ver en el mapa', url: 'https://mapa.ejemplo.ec' };
+  const keyboardOf = (fetchMock: ReturnType<typeof vi.fn>) => JSON.parse((fetchMock.mock.calls[0][1] as { body: string }).body).reply_markup?.inline_keyboard;
+  const stubFetch = () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true, result: {} })));
+    vi.stubGlobal('fetch', fetchMock);
+    return fetchMock;
+  };
 
-  it('agrupa por nivel y provincia, con todos los cantones', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('envía juntos los botones de opción y el del enlace', async () => {
+    const fetchMock = stubFetch();
+    await client.send('7', { text: 'hola', buttons: [[button]], link });
+    expect(keyboardOf(fetchMock)).toEqual([[{ text: 'Desglosar', callback_data: 'dr:z5' }], [{ text: 'Ver en el mapa', url: link.url }]]);
+  });
+
+  it('al editar conserva el enlace, y sin botones ni enlace los quita', async () => {
+    const withLink = stubFetch();
+    await client.editMessage('7', 50, 'hola', [], link);
+    expect(keyboardOf(withLink)).toEqual([[{ text: 'Ver en el mapa', url: link.url }]]);
+
+    const without = stubFetch();
+    await client.editMessage('7', 50, 'hola');
+    expect(keyboardOf(without)).toBeUndefined();
+  });
+});
+
+describe('mensajes', () => {
+  const canton = (name: string, province: string, likelihood: FlashFloodLikelihood, code = name) => ({ code, canton: name, province, likelihood });
+
+  it('la alerta resume por zona y nivel, sin listar cantones', () => {
     const text = worsenedMessage(
-      [canton('Durán', 'Guayas', 'highly_likely'), canton('Baba', 'Los Ríos', 'likely'), canton('Daule', 'Guayas', 'highly_likely')],
+      [canton('Durán', 'Guayas', 'highly_likely', '0907'), canton('Baba', 'Los Ríos', 'likely', '1202'), canton('Daule', 'Guayas', 'highly_likely', '0906')],
       new Date('2026-11-02T19:33:35Z'),
     );
-    expect(text).toContain('📍 3 cantones en 2 provincias');
+    expect(text).toContain('📍 3 cantones en 2 zonas');
     expect(text).toContain('MUY PROBABLE</b> · 2 cantones');
-    expect(text).toContain('<blockquote><b>Guayas · 2</b>\nDaule\nDurán</blockquote>');
+    expect(text).toContain('<b>Zona 5</b> (Guayas) · 1 cantón');
+    expect(text).toContain('<b>Zona 8</b> (Guayas) · 1 cantón');
     expect(text).toContain('PROBABLE</b> · 1 cantón');
+    expect(text).toContain('<b>Zona 5</b> (Los Ríos) · 1 cantón');
     expect(text).toContain('14:33');
+    expect(text).not.toContain('Daule');
+  });
+
+  it('el segundo nivel agrupa por nivel y provincia, con todos los cantones', () => {
+    const text = groupMessage(
+      'Zona 5',
+      [canton('Durán', 'Guayas', 'highly_likely'), canton('Baba', 'Los Ríos', 'highly_likely'), canton('Daule', 'Guayas', 'highly_likely')],
+      new Date('2026-11-02T19:33:35Z'),
+    );
+    expect(text).toContain('MUY PROBABLE</b> · 3 cantones');
+    expect(text).toContain('<blockquote><b>Guayas · 2</b>\nDaule\nDurán</blockquote>');
+    expect(text).toContain('<blockquote><b>Los Ríos · 1</b>\nBaba</blockquote>');
   });
 
   const withRain = (name: string, forecastMm: number) => ({ ...canton(name, 'Guayas', 'likely'), rain: { forecastMm, measured: null } });
 
   it('ordena por lluvia, sin decimales, y escapa las cifras menores que 1', () => {
-    const text = worsenedMessage([withRain('Nobol', 10.4), withRain('Milagro', 120), withRain('Daule', 0.5)], new Date());
+    const text = groupMessage('Guayas', [withRain('Nobol', 10.4), withRain('Milagro', 120), withRain('Daule', 0.5)], new Date());
     expect(text).toContain('Milagro · 120 mm\nNobol · 10 mm\nDaule · &lt;1 mm');
   });
 
   it('pliega los Probables cuando son muchos, y nunca los Muy probables', () => {
     const many = (likelihood: FlashFloodLikelihood) => Array.from({ length: 9 }, (_, index) => canton(`C${index}`, 'Guayas', likelihood));
-    expect(worsenedMessage(many('likely'), new Date())).toContain('<blockquote expandable>');
-    expect(worsenedMessage(many('highly_likely'), new Date())).not.toContain('expandable');
-    expect(worsenedMessage([canton('Daule', 'Guayas', 'likely')], new Date())).not.toContain('expandable');
+    expect(groupMessage('Guayas', many('likely'), new Date())).toContain('<blockquote expandable>');
+    expect(groupMessage('Guayas', many('highly_likely'), new Date())).not.toContain('expandable');
+    expect(groupMessage('Guayas', [canton('Daule', 'Guayas', 'likely')], new Date())).not.toContain('expandable');
+  });
+
+  it('las parroquias van por nivel y lluvia, y siempre avisan que es una referencia', () => {
+    const text = parishMessage(
+      canton('Daule', 'Guayas', 'highly_likely'),
+      [
+        { code: '1', parish: 'Limonal', likelihood: 'likely', forecastMm: 12 },
+        { code: '2', parish: 'Juan Bautista', likelihood: 'likely', forecastMm: 40 },
+        { code: '3', parish: 'Daule', likelihood: 'highly_likely', forecastMm: null },
+      ],
+      new Date(),
+    );
+    expect(text).toContain('MUY PROBABLE</b> · 1 parroquia');
+    expect(text).toContain('<blockquote>Daule</blockquote>');
+    expect(text).toContain('PROBABLE</b> · 2 parroquias');
+    expect(text).toContain('Juan Bautista · 40 mm\nLimonal · 12 mm');
+    expect(text).toContain('zonas de unos 20 km');
   });
 
   it('un mensaje enorme se parte sin dejar etiquetas abiertas', () => {
     const provinces = Array.from({ length: 24 }, (_, index) => `Provincia ${index}`);
     const cantons = provinces.flatMap((province) => Array.from({ length: 20 }, (_, index) => canton(`Cantón largo número ${index} de ${province}`, province, 'likely')));
-    const parts = splitText(worsenedMessage(cantons, new Date()));
+    const scope = { zones: [], provinces: [], cantons: cantons.map(({ code, canton: name, province }) => ({ code, name, province })) };
+    const parts = splitText(worsenedMessage(cantons, new Date(), scope));
     expect(parts.length).toBeGreaterThan(1);
     for (const part of parts) {
       expect(part.length).toBeLessThanOrEqual(4096);
@@ -465,7 +639,8 @@ describe('mensajes', () => {
   });
 
   it('escapa lo que no es de confianza', () => {
-    expect(worsenedMessage([canton('A<b>', 'P&Q', 'likely')], new Date())).toContain('A&lt;b&gt;');
+    expect(groupMessage('Z<1>', [canton('A<b>', 'P&Q', 'likely')], new Date())).toContain('A&lt;b&gt;');
+    expect(worsenedMessage([canton('A<b>', 'P&Q', 'likely')], new Date())).toContain('P&amp;Q');
   });
 
   it('una mejora nunca dice que no hay peligro', () => {

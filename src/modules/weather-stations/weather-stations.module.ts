@@ -6,7 +6,7 @@ import { WeatherStationsService } from './weather-stations.service.js';
 @Module({
   controllers: [WeatherStationsController],
   providers: [WeatherStationsService],
-  // Lo usa el análisis por cantón.
+  // Lo usan las alertas de crecidas.
   exports: [WeatherStationsService],
 })
 export class WeatherStationsModule {}

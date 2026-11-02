@@ -39,8 +39,16 @@ export interface TelegramMessage {
   buttons?: TelegramButton[][];
 }
 
-const toKeyboard = (buttons: TelegramButton[][]) =>
-  buttons.map((row) => row.map(({ label, data }) => ({ text: label, callback_data: data })));
+type TelegramLink = NonNullable<TelegramMessage['link']>;
+
+/** Los botones de opción y, en su propia fila, el del enlace. */
+function keyboard(buttons: TelegramButton[][] = [], link?: TelegramLink) {
+  const rows: object[][] = [
+    ...buttons.map((row) => row.map(({ label, data }) => ({ text: label, callback_data: data }))),
+    ...(link ? [[{ text: link.label, url: link.url }]] : []),
+  ];
+  return rows.length > 0 ? { reply_markup: { inline_keyboard: rows } } : {};
+}
 
 /** Error de la API de Telegram. Nunca incluye el token: va en la URL, que no se registra. */
 export class TelegramError extends Error {
@@ -94,8 +102,7 @@ export class TelegramClient {
           parse_mode: 'HTML',
           disable_notification: message.silent ?? false,
           link_preview_options: { is_disabled: true },
-          ...(isLast && message.link && { reply_markup: { inline_keyboard: [[{ text: message.link.label, url: message.link.url }]] } }),
-          ...(isLast && message.buttons && { reply_markup: { inline_keyboard: toKeyboard(message.buttons) } }),
+          ...(isLast && keyboard(message.buttons, message.link)),
         }),
       );
     }
@@ -106,15 +113,16 @@ export class TelegramClient {
     await this.call('answerCallbackQuery', { callback_query_id: id });
   }
 
-  /** Reemplaza el texto y los botones de un mensaje; sin `buttons`, los quita. */
-  async editMessage(chatId: string, messageId: number, text: string, buttons?: TelegramButton[][]): Promise<void> {
+  /** Reemplaza el texto y los botones de un mensaje; sin `buttons` ni `link`, los quita. */
+  async editMessage(chatId: string, messageId: number, text: string, buttons?: TelegramButton[][], link?: TelegramLink): Promise<void> {
     try {
       await this.call('editMessageText', {
         chat_id: chatId,
         message_id: messageId,
         text,
         parse_mode: 'HTML',
-        ...(buttons && { reply_markup: { inline_keyboard: toKeyboard(buttons) } }),
+        link_preview_options: { is_disabled: true },
+        ...keyboard(buttons, link),
       });
     } catch (error) {
       // Dos toques al mismo botón: el mensaje ya dice eso.

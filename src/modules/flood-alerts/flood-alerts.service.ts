@@ -12,11 +12,12 @@ import { CantonCatalog } from './canton-catalog.js';
 import { withCantonRain } from './canton-rain.js';
 import { FlashFloodIssueEntity } from './entities/flash-flood-issue.entity.js';
 import type { TelegramChatEntity } from './entities/telegram-chat.entity.js';
-import { cantonsInZones, type CantonForecast } from './flash-flood-cantons.js';
+import { cantonsInZones, parishesInZones, type CantonForecast } from './flash-flood-cantons.js';
 import { applyExpiry, applyIssue, type IssueChanges } from './flash-flood-transitions.js';
+import { cantonCodeOf, groupButtons, groupsOf, isCantonTarget, parishButtons, summaryButtons } from './flood-alert-drilldown.js';
 import { filterToScope, type ChatScope } from './flood-alert-scope.js';
 import { FlashFloodIssueStore, TelegramChatStore } from './flood-alert-stores.js';
-import { improvedMessage, statusMessage, worsenedMessage, type AlertCanton } from './flood-alert-messages.js';
+import { groupMessage, improvedMessage, parishMessage, statusMessage, worsenedMessage, type AlertCanton } from './flood-alert-messages.js';
 
 const CHANNEL = 'telegram';
 /** Cada cuánto se revisa. Flood Hub tiene su propio caché de 30 minutos. */
@@ -93,7 +94,42 @@ export class FloodAlertsService implements OnApplicationBootstrap, OnApplication
   async currentStatus(scope: ChatScope): Promise<TelegramMessage> {
     const latest = await this.issues.latest();
     const cantons = await this.withRain(filterToScope(scope, latest?.cantons ?? []), latest?.zones ?? []);
-    return this.withMapLink({ text: statusMessage(cantons, latest?.validUntil ?? null, scope), silent: true });
+    return this.withMapLink({
+      text: statusMessage(cantons, latest?.validUntil ?? null, scope),
+      silent: true,
+      buttons: summaryButtons(cantons, scope),
+    });
+  }
+
+  /**
+   * Un paso del desglose (ver flood-alert-drilldown.ts), dentro de lo que eligió la
+   * persona; null si ese lugar ya no tiene riesgo vigente.
+   */
+  async drillDown(scope: ChatScope, target: string): Promise<TelegramMessage | null> {
+    if (!target) return this.currentStatus(scope);
+    const latest = await this.issues.latest();
+    if (!latest) return null;
+    const watched = filterToScope(scope, latest.cantons);
+
+    if (isCantonTarget(target)) {
+      const canton = watched.find(({ code }) => code === cantonCodeOf(target));
+      if (!canton) return null;
+      const parishes = parishesInZones(latest.zones, await this.catalog.parishes(), canton.code);
+      const forecasts = new Map((await this.rainSources())?.[0].parishes.map(({ code, forecast }) => [code, forecast.mm24h]));
+      return this.withMapLink({
+        text: parishMessage(canton, parishes.map((parish) => ({ ...parish, forecastMm: forecasts.get(parish.code) })), latest.validUntil),
+        silent: true,
+        buttons: parishButtons(canton, scope),
+      });
+    }
+
+    const group = groupsOf(watched, scope).find(({ key }) => key === target);
+    if (!group) return null;
+    return this.withMapLink({
+      text: groupMessage(group.title, await this.withRain(group.cantons, latest.zones), latest.validUntil),
+      silent: true,
+      buttons: groupButtons(group, scope),
+    });
   }
 
   private async processIssue(issuedAt: Date, zones: FlashFloodArea[], latest: FlashFloodIssueEntity | null): Promise<void> {
@@ -124,6 +160,7 @@ export class FloodAlertsService implements OnApplicationBootstrap, OnApplication
       return {
         text: worsenedMessage(worsened, validUntil, chat),
         silent: !worsened.some((canton) => canton.likelihood === 'highly_likely'),
+        buttons: summaryButtons(worsened, chat),
       };
     });
     await this.broadcast(chats, `${key}:improved`, 'Actualización de crecidas', (chat) => {
@@ -137,16 +174,21 @@ export class FloodAlertsService implements OnApplicationBootstrap, OnApplication
   /** Agrega la lluvia a los cantones. Nunca frena una alerta: si no se puede leer, sale sin cifras. */
   private async withRain(cantons: readonly CantonForecast[], zones: readonly FlashFloodArea[]): Promise<AlertCanton[]> {
     if (cantons.length === 0) return [];
+    const sources = await this.rainSources();
+    return sources ? withCantonRain(cantons, zones, sources[0].parishes, sources[1].stations) : [...cantons];
+  }
+
+  /** Pronóstico y estaciones, o null si no se pudieron leer a tiempo. */
+  private async rainSources() {
     let timer: NodeJS.Timeout | undefined;
     try {
       const timeout = new Promise<never>((_, reject) => {
         timer = setTimeout(() => reject(new Error(`sin respuesta en ${RAIN_TIMEOUT_MS / 1000} s`)), RAIN_TIMEOUT_MS);
       });
-      const [analysis, stations] = await Promise.race([Promise.all([this.analysis.snapshot(), this.stations.snapshot()]), timeout]);
-      return withCantonRain(cantons, zones, analysis.parishes, stations.stations);
+      return await Promise.race([Promise.all([this.analysis.snapshot(), this.stations.snapshot()]), timeout]);
     } catch (error) {
       this.logger.warn(`Alerta sin datos de lluvia: ${(error as Error).message}`);
-      return [...cantons];
+      return null;
     } finally {
       clearTimeout(timer);
     }

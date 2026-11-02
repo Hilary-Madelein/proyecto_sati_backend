@@ -147,7 +147,9 @@ disponible en `GET /layers`, `/layers/:id`, `/layers/:id/legend` y `/layers/:id/
 Se enciende con `TELEGRAM_BOT_TOKEN` y `TELEGRAM_INVITE_CODE`; sin ellos no corre nada. El enlace
 `https://t.me/<bot>?start=<TELEGRAM_INVITE_CODE>` registra el chat de quien lo abre, que marca con botones
 todo el país o una o más zonas de planificación, provincias y cantones; lo elegido queda guardado y se cambia con `/alertas`.
-`/estado` muestra lo vigente y `/parar` corta las alertas. Cada cantón lleva la lluvia pronosticada para 24 h
+`/estado` muestra lo vigente y `/parar` corta las alertas. Para no saturar el chat, la alerta llega resumida por zona
+(o por provincia, si solo se eligieron provincias) y con botones se desglosa, editando el mismo mensaje, a cantón y a
+parroquia, con lo vigente al tocarlos. Cada cantón lleva la lluvia pronosticada para 24 h
 (WRF, la más alta entre sus parroquias afectadas) y, si hay una estación a menos de 10 km, lo medido en 12 h. Solo un proceso puede usar el token (long polling): no dejarlo
 a la vez en local y en el servidor. Cada 5 minutos se revisa si Google emitió de nuevo y se compara **por
 cantón**, porque Google cambia todos los ids en cada emisión: se avisa lo que entra o sube a Muy probable;
