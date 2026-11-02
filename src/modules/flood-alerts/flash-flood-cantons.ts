@@ -35,24 +35,3 @@ export function cantonsInZones(areas: readonly FlashFloodArea[], parishes: reado
   }
   return [...cantons.values()];
 }
-
-/** Parroquia dentro de una zona de crecidas, con el nivel más alto que le toca. */
-export interface ParishForecast {
-  /** Código DPA de 6 dígitos. */
-  code: string;
-  parish: string;
-  likelihood: FlashFloodLikelihood;
-}
-
-/** Parroquias de un cantón cuyo punto cae dentro de alguna zona: el mismo criterio con que cuenta el cantón. */
-export function parishesInZones(areas: readonly FlashFloodArea[], parishes: readonly ParishPoint[], cantonCode: string): ParishForecast[] {
-  return parishes.flatMap((parish) => {
-    if (parish.cantonCode !== cantonCode) return [];
-    const levels = areas
-      .filter((area) => (area.geometry.coordinates as unknown as Ring[][]).some((rings) => isInsideRings(rings, parish.lng, parish.lat)))
-      .map((area) => area.likelihood);
-    if (levels.length === 0) return [];
-    const likelihood = levels.reduce((high, level) => (LIKELIHOOD_RANK[level] > LIKELIHOOD_RANK[high] ? level : high));
-    return [{ code: parish.code, parish: parish.name, likelihood }];
-  });
-}

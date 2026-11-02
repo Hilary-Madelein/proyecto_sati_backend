@@ -3,7 +3,7 @@ import { AppConfigService } from '../../config/app-config.service.js';
 import { TelegramClient, TelegramError, type TelegramButton, type TelegramUpdate } from '../../integrations/telegram/telegram.client.js';
 import { CantonCatalog, type CatalogProvince } from './canton-catalog.js';
 import { TelegramChatEntity } from './entities/telegram-chat.entity.js';
-import { DRILL, twoColumns } from './flood-alert-drilldown.js';
+import { EXPLORE, explorerView, isExplorerData, parseTarget } from './flood-alert-explorer.js';
 import { NATIONAL, scopeLabel } from './flood-alert-scope.js';
 import { PLANNING_ZONES } from './planning-zones.js';
 import { TelegramChatStore } from './flood-alert-stores.js';
@@ -17,7 +17,6 @@ const ALERTS_COMMAND = 'Configurar alertas: todo el país, zonas, provincias o c
 const HELP = `Comandos:\n/alertas: ${ALERTS_COMMAND.charAt(0).toLowerCase()}${ALERTS_COMMAND.slice(1)}\n/estado: zonas de riesgo vigentes\n/parar: dejar de recibir alertas`;
 const CHOOSE = '¿Qué alertas quieres recibir? Puedes marcar varias zonas, provincias y cantones.';
 const NOT_REGISTERED = 'No estás registrado. Usa el enlace de invitación que recibiste.';
-const DRILL_GONE = 'Ese lugar ya no tiene riesgo vigente o se está actualizando. Usa /estado para ver lo más reciente.';
 
 /** Datos de los botones: Telegram los devuelve al tocarlos (máximo 64 bytes). */
 const MENU = 'menu';
@@ -53,6 +52,13 @@ const ZONES_TEXT = [
 const DONE_BUTTON: TelegramButton = { label: 'Listo', data: DONE };
 
 const marked = (selected: boolean, label: string) => (selected ? `✅ ${label}` : label);
+
+/** Botones en dos columnas. */
+function twoColumns(buttons: TelegramButton[]): TelegramButton[][] {
+  const rows: TelegramButton[][] = [];
+  for (let index = 0; index < buttons.length; index += 2) rows.push(buttons.slice(index, index + 2));
+  return rows;
+}
 
 /** Quita lo que ya estaba y agrega lo que no: cada toque marca o desmarca. */
 const toggled = <T>(list: readonly T[], isSame: (item: T) => boolean, item: T): T[] =>
@@ -180,7 +186,7 @@ export class TelegramBotService implements OnApplicationBootstrap, OnApplication
     await this.telegram.send(chatId, { text: `Ahora recibes alertas de: ${scopeLabel(chat)}.\n\n${CHOOSE}`, buttons: SCOPE_MENU });
   }
 
-  /** Un botón: baja por el desglose de una alerta, o navega por los menús y marca y desmarca lugares, que se guardan al instante. */
+  /** Un botón de los menús: navega por ellos o marca y desmarca lugares, que se guardan al instante. */
   private async choose(query: CallbackQuery): Promise<void> {
     await this.telegram.answerCallback(query.id);
     if (query.message?.chat.type !== 'private' || !query.data) return;
@@ -190,15 +196,17 @@ export class TelegramBotService implements OnApplicationBootstrap, OnApplication
     if (!chat?.active) return this.telegram.editMessage(chatId, messageId, NOT_REGISTERED);
 
     const data = query.data;
-    if (data.startsWith(DRILL)) {
-      const view = await this.alerts.drillDown(chat, data.slice(DRILL.length));
-      // Sin reemplazar la alerta, que sigue siendo lo último que se le avisó de ahí.
-      if (!view) return this.telegram.send(chatId, { text: DRILL_GONE, silent: true });
-      return this.telegram.editMessage(chatId, messageId, view.text, view.buttons, view.link);
-    }
     const provinces = await this.catalog.provinces();
     const provinceAt = (prefix: string) => provinces[Number(data.slice(prefix.length))];
 
+    if (isExplorerData(data)) {
+      const target = parseTarget(data, provinces);
+      if (!target) return;
+      const view = explorerView(await this.alerts.explorerData(chat), target);
+      // Desde la alerta se abre un mensaje aparte; dentro del detalle, se reemplaza en el mismo lugar.
+      if (data === EXPLORE) return this.telegram.send(chatId, { text: view.text, buttons: view.buttons, silent: true });
+      return this.telegram.editMessage(chatId, messageId, view.text, view.buttons);
+    }
     if (data === MENU) return this.telegram.editMessage(chatId, messageId, `Ahora recibes alertas de: ${scopeLabel(chat)}.\n\n${CHOOSE}`, SCOPE_MENU);
     if (data === DONE) return this.finish(chat, messageId);
     if (data === NATIONAL_SCOPE) {

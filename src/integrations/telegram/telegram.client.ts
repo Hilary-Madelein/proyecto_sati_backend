@@ -39,14 +39,12 @@ export interface TelegramMessage {
   buttons?: TelegramButton[][];
 }
 
-type TelegramLink = NonNullable<TelegramMessage['link']>;
+const toKeyboard = (buttons: TelegramButton[][]) =>
+  buttons.map((row) => row.map(({ label, data }) => ({ text: label, callback_data: data })));
 
-/** Los botones de opción y, en su propia fila, el del enlace. */
-function keyboard(buttons: TelegramButton[][] = [], link?: TelegramLink) {
-  const rows: object[][] = [
-    ...buttons.map((row) => row.map(({ label, data }) => ({ text: label, callback_data: data }))),
-    ...(link ? [[{ text: link.label, url: link.url }]] : []),
-  ];
+/** Botones de opción y, debajo, el enlace: los dos en un mismo teclado. */
+function keyboardOf({ buttons = [], link }: TelegramMessage) {
+  const rows = [...toKeyboard(buttons), ...(link ? [[{ text: link.label, url: link.url }]] : [])];
   return rows.length > 0 ? { reply_markup: { inline_keyboard: rows } } : {};
 }
 
@@ -102,7 +100,7 @@ export class TelegramClient {
           parse_mode: 'HTML',
           disable_notification: message.silent ?? false,
           link_preview_options: { is_disabled: true },
-          ...(isLast && keyboard(message.buttons, message.link)),
+          ...(isLast && keyboardOf(message)),
         }),
       );
     }
@@ -113,16 +111,15 @@ export class TelegramClient {
     await this.call('answerCallbackQuery', { callback_query_id: id });
   }
 
-  /** Reemplaza el texto y los botones de un mensaje; sin `buttons` ni `link`, los quita. */
-  async editMessage(chatId: string, messageId: number, text: string, buttons?: TelegramButton[][], link?: TelegramLink): Promise<void> {
+  /** Reemplaza el texto y los botones de un mensaje; sin `buttons`, los quita. */
+  async editMessage(chatId: string, messageId: number, text: string, buttons?: TelegramButton[][]): Promise<void> {
     try {
       await this.call('editMessageText', {
         chat_id: chatId,
         message_id: messageId,
         text,
         parse_mode: 'HTML',
-        link_preview_options: { is_disabled: true },
-        ...keyboard(buttons, link),
+        ...(buttons && { reply_markup: { inline_keyboard: toKeyboard(buttons) } }),
       });
     } catch (error) {
       // Dos toques al mismo botón: el mensaje ya dice eso.
