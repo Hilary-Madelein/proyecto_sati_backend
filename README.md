@@ -1,7 +1,7 @@
 # SATI.EC · API
 
 Backend del Sistema de alerta temprana de inundaciones para el Ecuador. Reúne datos
-de fuentes externas (SNGR, INAMHI, …), los guarda en PostgreSQL + PostGIS y los
+de fuentes externas (SNGR, INAMHI, Google Flood Hub), los guarda en PostgreSQL + PostGIS y los
 expone al frontend. También detecta eventos nuevos o que se agravan para enviar alertas.
 
 NestJS 12 (ESM) · TypeORM · PostgreSQL 14+ con PostGIS · Node 24.
