@@ -42,6 +42,12 @@ export interface TelegramMessage {
 const toKeyboard = (buttons: TelegramButton[][]) =>
   buttons.map((row) => row.map(({ label, data }) => ({ text: label, callback_data: data })));
 
+/** Botones de opción y, debajo, el enlace: los dos en un mismo teclado. */
+function keyboardOf({ buttons = [], link }: TelegramMessage) {
+  const rows = [...toKeyboard(buttons), ...(link ? [[{ text: link.label, url: link.url }]] : [])];
+  return rows.length > 0 ? { reply_markup: { inline_keyboard: rows } } : {};
+}
+
 /** Error de la API de Telegram. Nunca incluye el token: va en la URL, que no se registra. */
 export class TelegramError extends Error {
   constructor(
@@ -94,8 +100,7 @@ export class TelegramClient {
           parse_mode: 'HTML',
           disable_notification: message.silent ?? false,
           link_preview_options: { is_disabled: true },
-          ...(isLast && message.link && { reply_markup: { inline_keyboard: [[{ text: message.link.label, url: message.link.url }]] } }),
-          ...(isLast && message.buttons && { reply_markup: { inline_keyboard: toKeyboard(message.buttons) } }),
+          ...(isLast && keyboardOf(message)),
         }),
       );
     }

@@ -135,7 +135,7 @@ describe('alertas de crecidas por Telegram', () => {
   it('con varios lugares elegidos, lista por provincia solo los suyos', async () => {
     await addChat('dos', { zones: [], provinces: ['Guayas', 'Loja'], cantons: [] });
     await service.check(NOON);
-    expect(sent[0].message.text).toContain('<b>Guayas · 1</b>\nGuayaquil');
+    expect(sent[0].message.text).toContain('Guayas 1\nGuayaquil');
     expect(sent[0].message.text).not.toContain('Machala');
   });
 
@@ -166,11 +166,11 @@ describe('alertas de crecidas por Telegram', () => {
     await addChat('1');
     await service.check(NOON);
     const { text } = sent[0].message;
-    expect(text).toContain('Guayaquil · 95 mm · 🌧️ 3 mm');
+    expect(text).toContain('Guayaquil 95 mm');
     expect(text).not.toContain('300');
     expect(text).toContain('Machala');
     expect(text).toContain('mm: lluvia pronosticada para 24 h');
-    expect(text).toContain('🌧️: lluvia ya medida');
+    expect(sent[0].message.buttons).toEqual([[{ label: '🔎 Más detalle', data: 'x' }]]);
   });
 
   it('con un solo cantón dice de dónde sale cada cifra', async () => {
@@ -341,6 +341,31 @@ describe('alertas de crecidas por Telegram', () => {
       expect(sent[0].message.text).toContain('Machala');
     });
 
+    it('Más detalle abre un mensaje aparte y navega en él sin tocar la alerta', async () => {
+      await addChat('7');
+      await service.check(NOON);
+      expect(sent[0].message.buttons).toEqual([[{ label: '🔎 Más detalle', data: 'x' }]]);
+
+      sent.length = 0;
+      await bot.handle(tap('x'));
+      expect(sent).toHaveLength(1);
+      expect(sent[0].message.text).toContain('Riesgo vigente por zona');
+      expect(editMessage).not.toHaveBeenCalled();
+
+      await bot.handle(tap(button('🟠 Zona 8 · 1')));
+      expect(editMessage.mock.calls.at(-1)?.[2]).toContain('<b>Guayaquil</b> · Guayas');
+      expect(editMessage.mock.calls.at(-1)?.[2]).toContain('⚠️ A');
+    });
+
+    it('Más detalle respeta lo elegido', async () => {
+      await addChat('7', { zones: [7], provinces: [], cantons: [] });
+      await service.check(NOON);
+      sent.length = 0;
+      await bot.handle(tap('x'));
+      expect(sent[0].message.text).toContain('<b>Machala</b> · El Oro');
+      expect(sent[0].message.text).not.toContain('Guayaquil');
+    });
+
     it('Todo el país borra lo marcado', async () => {
       await addChat('7', { zones: [], provinces: ['Guayas'], cantons: [{ code: '0701', name: 'Machala', province: 'El Oro' }] });
       await bot.handle(tap('scope:national'));
@@ -433,35 +458,29 @@ describe('mensajes', () => {
       new Date('2026-11-02T19:33:35Z'),
     );
     expect(text).toContain('📍 3 cantones en 2 provincias');
-    expect(text).toContain('MUY PROBABLE</b> · 2 cantones');
-    expect(text).toContain('<blockquote><b>Guayas · 2</b>\nDaule\nDurán</blockquote>');
-    expect(text).toContain('PROBABLE</b> · 1 cantón');
+    expect(text).toContain('MUY PROBABLE</b> · 2 cantones\nGuayas 2\nDaule, Durán');
+    expect(text).toContain('PROBABLE</b> · 1 cantón\nLos Ríos 1\nBaba');
     expect(text).toContain('14:33');
+    expect(text).toContain('Más detalle');
   });
 
   const withRain = (name: string, forecastMm: number) => ({ ...canton(name, 'Guayas', 'likely'), rain: { forecastMm, measured: null } });
 
-  it('ordena por lluvia, sin decimales, y escapa las cifras menores que 1', () => {
-    const text = worsenedMessage([withRain('Nobol', 10.4), withRain('Milagro', 120), withRain('Daule', 0.5)], new Date());
-    expect(text).toContain('Milagro · 120 mm\nNobol · 10 mm\nDaule · &lt;1 mm');
+  it('nombra los 3 de más lluvia, sin decimales, y escapa las cifras menores que 1', () => {
+    const text = worsenedMessage(
+      [withRain('Nobol', 10.4), withRain('Milagro', 120), withRain('Daule', 0.5), withRain('Salitre', 0.2)],
+      new Date(),
+    );
+    expect(text).toContain('Más lluvia: Milagro 120 mm, Nobol 10 mm, Daule &lt;1 mm y 1 más');
   });
 
-  it('pliega los Probables cuando son muchos, y nunca los Muy probables', () => {
-    const many = (likelihood: FlashFloodLikelihood) => Array.from({ length: 9 }, (_, index) => canton(`C${index}`, 'Guayas', likelihood));
-    expect(worsenedMessage(many('likely'), new Date())).toContain('<blockquote expandable>');
-    expect(worsenedMessage(many('highly_likely'), new Date())).not.toContain('expandable');
-    expect(worsenedMessage([canton('Daule', 'Guayas', 'likely')], new Date())).not.toContain('expandable');
-  });
-
-  it('un mensaje enorme se parte sin dejar etiquetas abiertas', () => {
+  it('con muchos cantones la alerta sigue siendo corta', () => {
     const provinces = Array.from({ length: 24 }, (_, index) => `Provincia ${index}`);
-    const cantons = provinces.flatMap((province) => Array.from({ length: 20 }, (_, index) => canton(`Cantón largo número ${index} de ${province}`, province, 'likely')));
-    const parts = splitText(worsenedMessage(cantons, new Date()));
-    expect(parts.length).toBeGreaterThan(1);
-    for (const part of parts) {
-      expect(part.length).toBeLessThanOrEqual(4096);
-      expect(part.match(/<blockquote/g)?.length ?? 0).toBe(part.match(/<\/blockquote>/g)?.length ?? 0);
-    }
+    const cantons = provinces.flatMap((province) => Array.from({ length: 9 }, (_, index) => canton(`Cantón ${index} de ${province}`, province, 'likely')));
+    const text = worsenedMessage(cantons, new Date());
+    expect(text.length).toBeLessThan(1500);
+    expect(text).toContain('216 cantones en 24 provincias');
+    expect(text).toContain('y 213 más');
   });
 
   it('escapa lo que no es de confianza', () => {

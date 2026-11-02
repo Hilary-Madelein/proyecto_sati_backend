@@ -3,6 +3,7 @@ import { AppConfigService } from '../../config/app-config.service.js';
 import { TelegramClient, TelegramError, type TelegramButton, type TelegramUpdate } from '../../integrations/telegram/telegram.client.js';
 import { CantonCatalog, type CatalogProvince } from './canton-catalog.js';
 import { TelegramChatEntity } from './entities/telegram-chat.entity.js';
+import { EXPLORE, explorerView, isExplorerData, parseTarget } from './flood-alert-explorer.js';
 import { NATIONAL, scopeLabel } from './flood-alert-scope.js';
 import { PLANNING_ZONES } from './planning-zones.js';
 import { TelegramChatStore } from './flood-alert-stores.js';
@@ -198,6 +199,14 @@ export class TelegramBotService implements OnApplicationBootstrap, OnApplication
     const provinces = await this.catalog.provinces();
     const provinceAt = (prefix: string) => provinces[Number(data.slice(prefix.length))];
 
+    if (isExplorerData(data)) {
+      const target = parseTarget(data, provinces);
+      if (!target) return;
+      const view = explorerView(await this.alerts.explorerData(chat), target);
+      // Desde la alerta se abre un mensaje aparte; dentro del detalle, se reemplaza en el mismo lugar.
+      if (data === EXPLORE) return this.telegram.send(chatId, { text: view.text, buttons: view.buttons, silent: true });
+      return this.telegram.editMessage(chatId, messageId, view.text, view.buttons);
+    }
     if (data === MENU) return this.telegram.editMessage(chatId, messageId, `Ahora recibes alertas de: ${scopeLabel(chat)}.\n\n${CHOOSE}`, SCOPE_MENU);
     if (data === DONE) return this.finish(chat, messageId);
     if (data === NATIONAL_SCOPE) {
