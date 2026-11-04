@@ -2,7 +2,16 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { valueAt, type RasterGrid } from '../../common/raster/raster-grid.js';
 import { toTitleCase } from '../../common/text/title-case.js';
-import { classifyRain, classifyRain12h, classifyRain24h, type RainCategory, type RainWindow, type Semaphore } from './rain-thresholds.js';
+import {
+  classifyRain,
+  classifyRainWindow,
+  RAIN_BANDS,
+  RAIN_WINDOWS,
+  SEMAPHORE_RANK,
+  type RainCategory,
+  type RainWindow,
+  type Semaphore,
+} from './rain-thresholds.js';
 
 /**
  * Un punto por parroquia donde vive la gente: el centro, ponderado por
@@ -49,15 +58,26 @@ export interface ParishRain {
   semaphore: Semaphore;
   category: RainCategory;
   categoryLabel: string;
-  /** Lluvia de las próximas 12 y 24 h en la celda del WRF donde cae el punto, tal cual, y la categoría de cada ventana. */
-  forecast: {
-    mm12h: number | null;
-    mm24h: number | null;
-    category12h: RainCategory | null;
-    category24h: RainCategory | null;
-  };
-  /** Ventana que decidió el nivel (S = máx(S12h, S24h)); null si no hay pronóstico en el punto. */
+  /** Lluvia de cada ventana en la celda del WRF donde cae el punto, tal cual, y su categoría. */
+  forecast: Record<`mm${RainWindow}`, number | null> & Record<`category${RainWindow}`, RainCategory | null>;
+  /** Ventana que decidió el nivel (S = el más alto de todas); null si no hay pronóstico en el punto. */
   decidedBy: RainWindow | null;
+}
+
+/**
+ * Orden de la lista: primero el nivel más alto y, dentro de él, lo que ocurre antes
+ * (la ventana que decidió, de 3 a 24 h). A igual ventana, la categoría y la lluvia.
+ */
+export function byAlertPriority(a: ParishRain, b: ParishRain): number {
+  const windowRank = ({ decidedBy }: ParishRain) => (decidedBy ? RAIN_WINDOWS.indexOf(decidedBy) : RAIN_WINDOWS.length);
+  const categoryRank = ({ category }: ParishRain) => RAIN_BANDS.findIndex((band) => band.category === category);
+  const decisive = ({ decidedBy, forecast }: ParishRain) => (decidedBy ? forecast[`mm${decidedBy}`] : null) ?? -1;
+  return (
+    SEMAPHORE_RANK[b.semaphore] - SEMAPHORE_RANK[a.semaphore] ||
+    windowRank(a) - windowRank(b) ||
+    categoryRank(b) - categoryRank(a) ||
+    decisive(b) - decisive(a)
+  );
 }
 
 const round1 = (value: number) => Math.round(value * 10) / 10;
@@ -68,21 +88,28 @@ function pointMm(grid: RasterGrid | null, lat: number, lng: number): number | nu
   return value !== null && value >= 0 ? round1(value) : null;
 }
 
-/** Nivel de alerta de una parroquia con el pronóstico de 12 y 24 h en su punto (umbrales del documento). */
-export function parishRain(point: { lat: number; lng: number }, grid12h: RasterGrid | null, grid24h: RasterGrid | null): ParishRain {
-  const mm12h = pointMm(grid12h, point.lat, point.lng);
-  const mm24h = pointMm(grid24h, point.lat, point.lng);
-  const classified = classifyRain(mm12h, mm24h);
-  const band = classified?.band ?? classifyRain12h(0);
+/** Nivel de alerta de una parroquia con el pronóstico de cada ventana en su punto (umbrales del documento). */
+export function parishRain(point: { lat: number; lng: number }, grids: Partial<Record<RainWindow, RasterGrid | null>>): ParishRain {
+  const mm = Object.fromEntries(RAIN_WINDOWS.map((window) => [window, pointMm(grids[window] ?? null, point.lat, point.lng)])) as Record<RainWindow, number | null>;
+  const classified = classifyRain(mm);
+  const band = classified?.band ?? RAIN_BANDS[0];
+  const categoryOf = (window: RainWindow) => {
+    const value = mm[window];
+    return value === null ? null : classifyRainWindow(value, window).category;
+  };
   return {
     semaphore: band.semaphore,
     category: band.category,
     categoryLabel: band.label,
     forecast: {
-      mm12h,
-      mm24h,
-      category12h: mm12h === null ? null : classifyRain12h(mm12h).category,
-      category24h: mm24h === null ? null : classifyRain24h(mm24h).category,
+      mm3h: mm['3h'],
+      mm6h: mm['6h'],
+      mm12h: mm['12h'],
+      mm24h: mm['24h'],
+      category3h: categoryOf('3h'),
+      category6h: categoryOf('6h'),
+      category12h: categoryOf('12h'),
+      category24h: categoryOf('24h'),
     },
     decidedBy: classified?.decidedBy ?? null,
   };
