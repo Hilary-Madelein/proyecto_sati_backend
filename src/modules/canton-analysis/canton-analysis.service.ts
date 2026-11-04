@@ -17,7 +17,7 @@ import {
   segmentsOf,
   type CantonShape,
 } from './canton-geometry.js';
-import { loadParishes, parishRain, type ParishPoint, type ParishRain } from './parishes.js';
+import { loadParishes, byAlertPriority, parishRain, type ParishPoint, type ParishRain } from './parishes.js';
 import {
   PREPAREDNESS_WEIGHTS,
   normalizeText,
@@ -30,7 +30,7 @@ import {
 } from './preparedness.js';
 import { RISK_LAYERS } from '../risk-layers/risk-layers.catalog.js';
 import { isPreventiveAction } from '../risk-layers/mit-actions.js';
-import { RAIN_BANDS, SEMAPHORE_RANK, type Band, type Semaphore } from './rain-thresholds.js';
+import { RAIN_BANDS, type Band, type Semaphore } from './rain-thresholds.js';
 
 const MINUTE_MS = 60 * 1000;
 const HOUR_MS = 60 * MINUTE_MS;
@@ -42,9 +42,6 @@ const FIRST_RUN_DELAY_MS = MINUTE_MS;
 const STEP_MS = 3 * HOUR_MS;
 /** Recálculo poco después de empezar cada bloque (pasada la caché de 5 min de la ventana de lluvia). */
 const NEXT_STEP_DELAY_MS = 6 * MINUTE_MS;
-/** Ventanas del semáforo, contadas desde ahora (pasos de 3 h del WRF): manda la más alta de las dos. */
-const FORECAST_SHORT_HOURS = 12;
-const FORECAST_LONG_HOURS = 24;
 /** Código DPA de las zonas no delimitadas (no son una provincia). */
 const UNDEFINED_ZONE_CODE = '90';
 /**
@@ -149,6 +146,8 @@ export interface CantonAnalysisSnapshot {
   updatedAt: string;
   forecastRun: string | null;
   /** Ventanas del pronóstico usadas (null si la corrida no las tenía). */
+  forecast3h: { from: string; to: string } | null;
+  forecast6h: { from: string; to: string } | null;
   forecast12h: { from: string; to: string } | null;
   forecast24h: { from: string; to: string } | null;
   /** Parroquias por nivel; las sin pronóstico van aparte (`noData`), no como verdes. */
@@ -239,7 +238,7 @@ export class CantonAnalysisService implements OnApplicationBootstrap, OnModuleDe
   }
 
   /**
-   * Las 12 y 24 h se cuentan desde el bloque de 3 h en curso: al empezar el
+   * Las ventanas se cuentan desde el bloque de 3 h en curso: al empezar el
    * siguiente se recalcula, sin esperar al cálculo de cada hora.
    */
   private scheduleNextStep(snapshot: CantonAnalysisSnapshot): void {
@@ -285,9 +284,12 @@ export class CantonAnalysisService implements OnApplicationBootstrap, OnModuleDe
         (value) => `${value.from} a ${value.to}`,
       );
 
-    const [forecast, forecast12h, rivers, floodHub, events, layers, preparedness] = await Promise.all([
-      forecastWindow(FORECAST_LONG_HOURS),
-      forecastWindow(FORECAST_SHORT_HOURS),
+    // Ventanas del semáforo, contadas desde ahora (pasos de 3 h del WRF): manda la más alta.
+    const [forecast3h, forecast6h, forecast12h, forecast, rivers, floodHub, events, layers, preparedness] = await Promise.all([
+      forecastWindow(3),
+      forecastWindow(6),
+      forecastWindow(12),
+      forecastWindow(24),
       attempt('Alertas por caudal', () => this.hydrology.getAlerts(), (value) => `${value.alerts.length} tramos`),
       attempt('Google Flood Hub', () => this.floodHub.snapshot(), (value) => `${value.flaggedCount} con aviso`),
       attempt(
@@ -455,18 +457,16 @@ export class CantonAnalysisService implements OnApplicationBootstrap, OnModuleDe
       province: parish.province,
       kind: parish.kind,
       point: [parish.lat, parish.lng],
-      ...parishRain(parish, forecast12h?.grid ?? null, forecast?.grid ?? null),
+      ...parishRain(parish, { '3h': forecast3h?.grid, '6h': forecast6h?.grid, '12h': forecast12h?.grid, '24h': forecast?.grid }),
     }));
-    // De la más a la menos afectada: nivel y, dentro de cada uno, la lluvia que lo decidió.
-    const decisive = (parish: ParishAlert) => (parish.decidedBy === '24h' ? parish.forecast.mm24h : parish.forecast.mm12h) ?? -1;
-    const parishes = allParishes
-      .filter((parish) => parish.decidedBy !== null)
-      .sort((a, b) => SEMAPHORE_RANK[b.semaphore] - SEMAPHORE_RANK[a.semaphore] || decisive(b) - decisive(a));
+    const parishes = allParishes.filter((parish) => parish.decidedBy !== null).sort(byAlertPriority);
 
     this.logger.log(`Análisis por parroquia listo en ${((Date.now() - started) / 1000).toFixed(1)} s`);
     return {
       updatedAt: new Date().toISOString(),
       forecastRun: forecast?.run ?? null,
+      forecast3h: forecast3h ? { from: forecast3h.from, to: forecast3h.to } : null,
+      forecast6h: forecast6h ? { from: forecast6h.from, to: forecast6h.to } : null,
       forecast12h: forecast12h ? { from: forecast12h.from, to: forecast12h.to } : null,
       forecast24h: forecast ? { from: forecast.from, to: forecast.to } : null,
       counts: {

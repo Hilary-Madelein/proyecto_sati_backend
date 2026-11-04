@@ -9,10 +9,10 @@ export class CantonAnalysisController {
 
   @Get()
   @ApiOperation({
-    summary: 'Semáforo por cantón con la lluvia pronosticada de 12 y 24 h y lo que hay en cada uno',
+    summary: 'Semáforo por cantón con la lluvia pronosticada de 3, 6, 12 y 24 h y lo que hay en cada uno',
     description:
-      'Pronóstico WRF del INAMHI en cada cantón (percentil 90 de sus celdas) para las próximas 12 y 24 h, con los ' +
-      'umbrales del documento de la SNGR: manda el color más alto de las dos ventanas. Por ' +
+      'Pronóstico WRF del INAMHI en cada cantón (percentil 90 de sus celdas) para las próximas 3, 6, 12 y 24 h, con los ' +
+      'umbrales del documento de la SNGR: manda el color más alto de las cuatro ventanas. Por ' +
       'cantón: factores detonantes, elementos expuestos, acciones preventivas y herramientas para la respuesta. Se recalcula cada hora.',
   })
   snapshot() {

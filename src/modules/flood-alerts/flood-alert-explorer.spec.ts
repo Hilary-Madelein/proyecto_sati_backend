@@ -63,9 +63,9 @@ const data = (cantons: AlertCanton[]): ExplorerData => ({
     parish('091253', 'Sin pronóstico', '0912', -2.3, -79.6),
   ],
   forecasts: [
-    { code: '091250', forecast: { mm12h: 1, mm24h: 120, category12h: null, category24h: null } },
-    { code: '091251', forecast: { mm12h: 1, mm24h: 0.4, category12h: null, category24h: null } },
-    { code: '091252', forecast: { mm12h: 1, mm24h: 41, category12h: null, category24h: null } },
+    { code: '091250', forecast: { mm3h: 1, mm6h: 1, mm12h: 1, mm24h: 120, category3h: null, category6h: null, category12h: null, category24h: null } },
+    { code: '091251', forecast: { mm3h: 1, mm6h: 1, mm12h: 1, mm24h: 0.4, category3h: null, category6h: null, category12h: null, category24h: null } },
+    { code: '091252', forecast: { mm3h: 1, mm6h: 1, mm12h: 1, mm24h: 41, category3h: null, category6h: null, category12h: null, category24h: null } },
   ],
   provinces,
 });

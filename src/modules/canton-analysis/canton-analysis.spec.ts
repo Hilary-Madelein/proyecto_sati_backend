@@ -1,7 +1,10 @@
 import type { RasterGrid } from '../../common/raster/raster-grid.js';
 import { CantonLocator, bboxOf, distanceKm, ringsOf, segmentsOf, type CantonShape } from './canton-geometry.js';
-import { parishRain } from './parishes.js';
-import { classifyRain, classifyRain12h, classifyRain24h } from './rain-thresholds.js';
+import { byAlertPriority, parishRain } from './parishes.js';
+import { classifyRain, classifyRainWindow, RAIN_BANDS } from './rain-thresholds.js';
+
+const classifyRain12h = (mm: number) => classifyRainWindow(mm, '12h');
+const classifyRain24h = (mm: number) => classifyRainWindow(mm, '24h');
 import { classifyRoadProjects, isRoadProject, preparednessIndex, preparednessLevel, provinceCodeOf, sameDescription, sameTrace } from './preparedness.js';
 
 describe('classifyRain12h', () => {
@@ -36,21 +39,43 @@ describe('classifyRain24h', () => {
   });
 });
 
-describe('classifyRain: S = máx(S12h, S24h)', () => {
-  it('manda la categoría más alta de las dos ventanas', () => {
-    // 4 mm en 12 h es verde, pero 45 mm en 24 h es amarillo (fuerte): lluvia larga y moderada.
-    expect(classifyRain(4, 45)).toMatchObject({ decidedBy: '24h', band: { semaphore: 'yellow', label: 'Fuerte' } });
-    // 32 mm en 12 h ya es intensa aunque las 24 h (40 mm) solo den fuerte: aguacero corto.
-    expect(classifyRain(32, 40)).toMatchObject({ decidedBy: '12h', band: { semaphore: 'orange', label: 'Intensa' } });
-    // 75 mm en 12 h es torrencial (rojo) aunque las 24 h (90 mm) den intensa.
-    expect(classifyRain(75, 90)).toMatchObject({ decidedBy: '12h', band: { semaphore: 'red', label: 'Torrencial' } });
-    // Con la misma categoría decide la de 12 h.
-    expect(classifyRain(6, 12)?.decidedBy).toBe('12h');
+describe('umbrales de 3 y 6 h', () => {
+  it('coinciden con la tabla, límite inferior inclusivo y superior exclusivo', () => {
+    const labels = (mm: number[], window: '3h' | '6h') => mm.map((value) => classifyRainWindow(value, window).label);
+    expect(labels([0.05, 0.1, 1.9, 2, 4.9, 5, 9.9, 10, 24.9, 25, 49.9, 50], '3h')).toEqual([
+      'Mínima', 'Ligera', 'Ligera', 'Moderada', 'Moderada', 'Fuerte', 'Fuerte', 'Intensa', 'Intensa', 'Torrencial', 'Torrencial', 'Extrema',
+    ]);
+    expect(labels([0.05, 0.1, 2.9, 3, 9.9, 10, 19.9, 20, 39.9, 40, 79.9, 80], '6h')).toEqual([
+      'Mínima', 'Ligera', 'Ligera', 'Moderada', 'Moderada', 'Fuerte', 'Fuerte', 'Intensa', 'Intensa', 'Torrencial', 'Torrencial', 'Extrema',
+    ]);
   });
 
-  it('sin ningún dato no clasifica (no es verde)', () => {
-    expect(classifyRain(null, null)).toBeNull();
-    expect(classifyRain(null, 12)?.band.semaphore).toBe('yellow');
+  it('no cambian los de 12 y 24 h', () => {
+    expect(RAIN_BANDS.map((band) => band.from12h)).toEqual([0, 0.1, 5, 15, 30, 70, 140]);
+    expect(RAIN_BANDS.map((band) => band.from24h)).toEqual([0, 0.1, 10, 25, 50, 100, 250]);
+  });
+});
+
+describe('classifyRain: S = el más alto de todas las ventanas', () => {
+  it('manda la categoría más alta, sea cual sea la ventana', () => {
+    // 4 mm en 12 h es verde, pero 45 mm en 24 h es amarillo (fuerte): lluvia larga y moderada.
+    expect(classifyRain({ '12h': 4, '24h': 45 })).toMatchObject({ decidedBy: '24h', band: { semaphore: 'yellow', label: 'Fuerte' } });
+    // 32 mm en 12 h ya es intensa aunque las 24 h (40 mm) solo den fuerte: aguacero corto.
+    expect(classifyRain({ '12h': 32, '24h': 40 })).toMatchObject({ decidedBy: '12h', band: { semaphore: 'orange', label: 'Intensa' } });
+    // 30 mm en 3 h es torrencial (rojo) aunque esa misma lluvia en 12 h (30 mm) dé intensa y en 24 h, fuerte.
+    expect(classifyRain({ '3h': 30, '6h': 30, '12h': 30, '24h': 30 })).toMatchObject({ decidedBy: '3h', band: { semaphore: 'red', label: 'Torrencial' } });
+    // 25 mm en 6 h es intensa aunque las 3 h (9 mm) solo den fuerte.
+    expect(classifyRain({ '3h': 9, '6h': 25, '12h': 25, '24h': 25 })).toMatchObject({ decidedBy: '6h', band: { semaphore: 'orange', label: 'Intensa' } });
+  });
+
+  it('con empate decide la ventana más corta', () => {
+    expect(classifyRain({ '12h': 6, '24h': 12 })?.decidedBy).toBe('12h');
+    expect(classifyRain({ '3h': 3, '6h': 5, '12h': 6, '24h': 12 })?.decidedBy).toBe('3h');
+  });
+
+  it('sin ningún dato no clasifica (no es verde), y una ventana sin dato no cuenta', () => {
+    expect(classifyRain({ '3h': null, '6h': null, '12h': null, '24h': null })).toBeNull();
+    expect(classifyRain({ '3h': null, '6h': null, '12h': null, '24h': 12 })).toMatchObject({ decidedBy: '24h', band: { semaphore: 'yellow' } });
   });
 });
 
@@ -202,19 +227,57 @@ describe('parishRain', () => {
 
   it('toma el valor de la celda donde cae el punto, sin promediar', () => {
     // Celda de la columna 7: 70 mm en 12 h (torrencial, rojo) y 140 mm en 24 h.
-    const rain = parishRain({ lat: -1.55, lng: -79.25 }, grid(1), grid(2));
-    expect(rain.forecast).toEqual({ mm12h: 70, mm24h: 140, category12h: 'torrencial', category24h: 'torrencial' });
+    const rain = parishRain({ lat: -1.55, lng: -79.25 }, { '12h': grid(1), '24h': grid(2) });
+    expect(rain.forecast).toEqual({
+      mm3h: null,
+      mm6h: null,
+      mm12h: 70,
+      mm24h: 140,
+      category3h: null,
+      category6h: null,
+      category12h: 'torrencial',
+      category24h: 'torrencial',
+    });
     expect(rain).toMatchObject({ semaphore: 'red', category: 'torrencial', decidedBy: '12h' });
   });
 
   it('manda la ventana más grave', () => {
     // 20 mm en 12 h (fuerte) y 60 mm en 24 h (intensa): decide la de 24 h, en naranja.
-    const rain = parishRain({ lat: -1.55, lng: -79.75 }, grid(1), grid(3));
+    const rain = parishRain({ lat: -1.55, lng: -79.75 }, { '12h': grid(1), '24h': grid(3) });
     expect(rain).toMatchObject({ semaphore: 'orange', category: 'intensa', decidedBy: '24h' });
   });
 
+  it('las ventanas cortas también pueden decidir el nivel', () => {
+    // Columna 3: 30 mm en 3 h (torrencial) y en las demás ventanas menos grave.
+    const rain = parishRain({ lat: -1.55, lng: -79.65 }, { '3h': grid(1), '6h': grid(1), '12h': grid(1), '24h': grid(1) });
+    expect(rain).toMatchObject({ semaphore: 'red', category: 'torrencial', decidedBy: '3h', forecast: { mm3h: 30, category3h: 'torrencial', category6h: 'intensa', category24h: 'fuerte' } });
+  });
+
+  it('ordena por nivel y, dentro de él, de lo que ocurre antes a lo que ocurre después', () => {
+    const parish = (name: string, mm: Partial<Record<'3h' | '6h' | '12h' | '24h', number>>) => {
+      const uniform = (window: '3h' | '6h' | '12h' | '24h') => ({ width: 1, height: 1, bbox: [-80, -2, -79, -1], values: Float64Array.of(mm[window] ?? 0), noData: null }) as RasterGrid;
+      return { name, ...parishRain({ lat: -1.5, lng: -79.5 }, { '3h': uniform('3h'), '6h': uniform('6h'), '12h': uniform('12h'), '24h': uniform('24h') }) };
+    };
+    const order = [
+      parish('naranja en 3 h', { '3h': 12 }),
+      parish('rojo en 24 h', { '24h': 300 }),
+      parish('rojo en 12 h', { '12h': 80 }),
+      parish('rojo en 3 h, menos lluvia', { '3h': 26 }),
+      parish('rojo en 3 h, más lluvia', { '3h': 45 }),
+      parish('rojo en 6 h', { '6h': 50 }),
+    ].sort(byAlertPriority);
+    expect(order.map(({ name }) => name)).toEqual([
+      'rojo en 3 h, más lluvia',
+      'rojo en 3 h, menos lluvia',
+      'rojo en 6 h',
+      'rojo en 12 h',
+      'rojo en 24 h',
+      'naranja en 3 h',
+    ]);
+  });
+
   it('fuera de la grilla no clasifica (no es verde)', () => {
-    expect(parishRain({ lat: 0.5, lng: -78 }, grid(1), grid(2))).toMatchObject({ decidedBy: null, forecast: { mm12h: null, mm24h: null } });
+    expect(parishRain({ lat: 0.5, lng: -78 }, { '12h': grid(1), '24h': grid(2) })).toMatchObject({ decidedBy: null, forecast: { mm12h: null, mm24h: null } });
   });
 });
 
