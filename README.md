@@ -185,6 +185,7 @@ patrón: un contrato para sus fuentes y adaptadores en `integrations/`.
 | GET | `/api/v1/layers/:id/wms` | Proxy WMS (úsalo como URL de la capa en Leaflet) |
 | GET | `/api/v1/layers/:id/tiles/:z/:x/:y` | Proxy de teselas vectoriales (red de ríos) |
 | GET | `/api/v1/rain-forecast` | Corrida vigente del WRF y días disponibles (1, 2, 3) |
+| GET | `/api/v1/rain-forecast/windows/:hours` | Lluvia de las próximas 3, 6, 12 o 24 h (desde el bloque de 3 h en curso): periodo, límites, máximo y ruta de la imagen |
 | GET | `/api/v1/rain-forecast/days/:day` | Lluvia de un solo día: ventana, límites, máximo y ruta de la imagen |
 | GET | `/api/v1/rain-forecast/days/:day/value?lat=&lng=` | Lluvia pronosticada del día en un punto (mm); `null` fuera del Ecuador o sin dato |
 | GET | `/api/v1/rain-forecast/days/:day/image` | Imagen PNG de la lluvia del día para superponer en el mapa |

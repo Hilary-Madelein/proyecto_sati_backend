@@ -12,6 +12,10 @@ import { RainForecastSource, type ForecastRun, type WindowRainGrid } from './rai
 export const FORECAST_DAYS = [1, 2, 3] as const;
 export type ForecastDay = (typeof FORECAST_DAYS)[number];
 
+/** Ventanas ofrecidas: la lluvia de las próximas N horas, desde el bloque de 3 h en curso (como la alerta por parroquia). */
+export const FORECAST_WINDOWS = [3, 6, 12, 24] as const;
+export type ForecastWindow = (typeof FORECAST_WINDOWS)[number];
+
 const MINUTE_MS = 60 * 1000;
 const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;
@@ -50,6 +54,19 @@ export interface DailyRainForecast {
   imagePath: string;
 }
 
+/** Lluvia pronosticada de una ventana: se mueve al empezar cada bloque de 3 h, aunque la corrida sea la misma. */
+export interface WindowRainForecast {
+  run: string;
+  hours: ForecastWindow;
+  from: string;
+  to: string;
+  bounds: [[number, number], [number, number]];
+  /** Lluvia máxima de la ventana en una celda (mm). */
+  maxMm: number;
+  /** Ruta (relativa a la API) de la imagen PNG. */
+  imagePath: string;
+}
+
 /** Lluvia pronosticada del día en un punto. */
 export interface RainForecastPoint {
   run: string;
@@ -78,6 +95,7 @@ export class RainForecastService {
   private readonly renderCache = new TtlCache<Rendered>(6 * HOUR_MS, 12);
   // Corta: al empezar un bloque de 3 h, la ventana "desde ahora" cambia (cada bloque ya se guarda aparte, sumar es barato).
   private readonly windowCache = new TtlCache<WindowRainGrid | null>(5 * MINUTE_MS, 4);
+  private readonly windowRenderCache = new TtlCache<{ meta: WindowRainForecast; png: Buffer; grid: RasterGrid }>(3 * HOUR_MS, 8);
 
   constructor(private readonly source: RainForecastSource) {}
 
@@ -120,6 +138,21 @@ export class RainForecastService {
     };
   }
 
+  async window(hours: ForecastWindow): Promise<WindowRainForecast> {
+    return (await this.renderWindow(hours)).meta;
+  }
+
+  async windowImage(hours: ForecastWindow): Promise<Buffer> {
+    return (await this.renderWindow(hours)).png;
+  }
+
+  /** Lluvia de la ventana en un punto (mm); null fuera del Ecuador o sin dato. */
+  async windowValueAt(hours: ForecastWindow, lat: number, lng: number): Promise<{ run: string; hours: ForecastWindow; from: string; to: string; mm: number | null }> {
+    const { meta, grid } = await this.renderWindow(hours);
+    const value = isInsideRings(ECUADOR_RINGS, lng, lat) ? valueAt(grid, lat, lng) : null;
+    return { run: meta.run, hours, from: meta.from, to: meta.to, mm: value === null ? null : Math.round(value * 10) / 10 };
+  }
+
   /** Grilla de la lluvia del día N (sin la imagen), para cálculos por zona. */
   async dailyGrid(day: ForecastDay): Promise<{ run: string; from: string; to: string; grid: RasterGrid }> {
     const { meta, grid } = await this.render(day);
@@ -129,6 +162,31 @@ export class RainForecastService {
   /** Lluvia pronosticada de las próximas `hours` horas en grilla, para cálculos por zona; null si la corrida no llega. */
   nextHoursGrid(hours: number): Promise<WindowRainGrid | null> {
     return this.upstream(this.windowCache.get(String(hours), () => this.source.getNextHoursGrid(hours, Date.now())));
+  }
+
+  private async renderWindow(hours: ForecastWindow) {
+    const window = await this.nextHoursGrid(hours);
+    if (!window) throw new NotFoundException(`La corrida actual del modelo no llega a las próximas ${hours} h`);
+    const { run, from, to, grid } = window;
+    return this.upstream(
+      this.windowRenderCache.get(`${run}:${hours}:${to}`, async () => {
+        const stops = await this.source.getColorStops();
+        const [west, south, east, north] = grid.bbox;
+        const meta: WindowRainForecast = {
+          run,
+          hours,
+          from,
+          to,
+          bounds: [
+            [south, west],
+            [north, east],
+          ],
+          maxMm: Math.round(gridMax(grid) * 10) / 10,
+          imagePath: `/rain-forecast/windows/${hours}/image?run=${encodeURIComponent(run)}&to=${encodeURIComponent(to)}`,
+        };
+        return { meta, png: renderGridPng(grid, createColorRamp(stops), RENDER_OPTIONS), grid };
+      }),
+    );
   }
 
   private async render(day: ForecastDay): Promise<Rendered> {

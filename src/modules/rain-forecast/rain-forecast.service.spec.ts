@@ -37,8 +37,9 @@ class FakeSource extends RainForecastSource {
     return [{ value: 1, color: '#0000ff', opacity: 1 }];
   }
 
-  async getNextHoursGrid() {
-    return null;
+  async getNextHoursGrid(hours: number) {
+    if (hours > 12) return null;
+    return { run: 'corrida-3h', from: '2026-10-05T10:00:00.000Z', to: `fin-${hours}`, grid: grid(hours * 2) };
   }
 }
 
@@ -65,6 +66,24 @@ describe('RainForecastService', () => {
     expect(result).toMatchObject({ day: 2, from: dayTime(1), to: dayTime(2), maxMm: 20 });
     // La URL cambia si cambia la corrida o la ventana del día (el navegador guarda la imagen 6 h).
     expect(result.imagePath).toBe(`/rain-forecast/days/2/image?run=${encodeURIComponent(RUN)}&to=${encodeURIComponent(dayTime(2))}`);
+  });
+
+  it('una ventana trae su periodo y su propia lluvia, sin mezclarse con otra', async () => {
+    const { service } = build();
+    const three = await service.window(3);
+    expect(three).toMatchObject({ run: 'corrida-3h', hours: 3, from: '2026-10-05T10:00:00.000Z', to: 'fin-3', maxMm: 6 });
+    expect(three.imagePath).toBe('/rain-forecast/windows/3/image?run=corrida-3h&to=fin-3');
+    await expect(service.window(6)).resolves.toMatchObject({ hours: 6, maxMm: 12 });
+    expect(await service.windowImage(3)).toBeInstanceOf(Buffer);
+  });
+
+  it('el valor de una ventana es null fuera del Ecuador', async () => {
+    const { service } = build();
+    await expect(service.windowValueAt(3, 40, -3)).resolves.toMatchObject({ hours: 3, to: 'fin-3', mm: null });
+  });
+
+  it('responde 404 si la corrida no llega a esa ventana', async () => {
+    await expect(build().service.window(24)).rejects.toThrow(NotFoundException);
   });
 
   it('responde 404 si la corrida no llega a ese día', async () => {
