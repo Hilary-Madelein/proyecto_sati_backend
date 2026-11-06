@@ -360,11 +360,14 @@ export class CantonAnalysisService implements OnApplicationBootstrap, OnModuleDe
     );
 
     const l = layers;
+    const floodSchools = l.get('schools-floods');
+    const schools = uniqueSchools(floodSchools, l.get('schools-mass-movements'));
     const counts = {
       criticalPoints: countPoints(l.get('rve-critical-points')),
-      schools: countPoints(l.get('schools')),
-      schoolsHighFlood: countPoints(l.get('schools'), (f) => text(f, 'SUSCEPTIBI') === 'SUSCEPTIBILIDAD ALTA A INUNDACIONES'),
-      students: sumPoints(l.get('schools'), (f) => Number(f.properties.ESTUDIANTE) || 0),
+      schools: countPoints(schools),
+      // En la vista de inundaciones, SUSCEPTI_1 es la susceptibilidad a inundación de cada institución.
+      schoolsHighFlood: countPoints(floodSchools, (f) => text(f, 'SUSCEPTI_1') === 'SUSCEPTIBILIDAD ALTA A INUNDACIONES'),
+      students: sumPoints(schools, (f) => Number(f.properties.ESTUDIANTE) || 0),
       healthCenters: countPoints(l.get('health-centers')),
       healthFloodSusceptible: countPoints(l.get('health-centers-floods')),
       rveKm: lineKm(l.get('rve')),
@@ -602,7 +605,8 @@ export class CantonAnalysisService implements OnApplicationBootstrap, OnModuleDe
   private async loadRiskLayers(sources: SourceStatus[]): Promise<Map<string, GeoJsonFeature[]>> {
     const ids = [
       'rve-critical-points',
-      'schools',
+      'schools-floods',
+      'schools-mass-movements',
       'health-centers',
       'health-centers-floods',
       'rve',
@@ -637,3 +641,21 @@ export class CantonAnalysisService implements OnApplicationBootstrap, OnModuleDe
   }
 }
 
+/**
+ * Instituciones educativas de las dos capas del MINEDUC (inundaciones y
+ * movimientos en masa), sin repetir las que están en ambas: se reconocen por
+ * su código AMIE (o, si no lo traen, por su posición).
+ */
+function uniqueSchools(...layers: Array<GeoJsonFeature[] | undefined>): GeoJsonFeature[] | undefined {
+  if (layers.every((layer) => !layer)) return undefined;
+  const seen = new Set<string>();
+  const unique: GeoJsonFeature[] = [];
+  for (const feature of layers.flatMap((layer) => layer ?? [])) {
+    const amie = String(feature.properties.AMIE ?? '').trim();
+    const key = amie || JSON.stringify(feature.geometry);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(feature);
+  }
+  return unique;
+}

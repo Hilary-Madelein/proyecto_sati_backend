@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { BadGatewayException, Injectable } from '@nestjs/common';
 import { TtlCache } from '../../common/cache/ttl-cache.js';
 import { UpstreamError } from '../../common/http/upstream.error.js';
@@ -136,10 +137,11 @@ export class SeaTemperatureService {
         const finite = Array.from(field.anomaly.values).filter(Number.isFinite);
         const nino = meanInBox(field.anomaly, NINO_12_BBOX);
         const anomaly = fillGaps(field.anomaly, COAST_FILL_PASSES);
+        const png = renderGridPng(anomaly, createColorRamp([...ANOMALY_STOPS]), RENDER_OPTIONS);
         return {
           sst: fillGaps(field.sst, COAST_FILL_PASSES),
           anomaly,
-          png: renderGridPng(anomaly, createColorRamp([...ANOMALY_STOPS]), RENDER_OPTIONS),
+          png,
           meta: {
             time: field.time,
             isStale: Date.parse(field.time) < Date.now() - STALE_AFTER_MS,
@@ -152,7 +154,9 @@ export class SeaTemperatureService {
             minAnomaly: round1(finite.length ? finite.reduce((a, b) => Math.min(a, b)) : 0),
             maxAnomaly: round1(finite.length ? finite.reduce((a, b) => Math.max(a, b)) : 0),
             legend: { unit: '°C', entries: ANOMALY_STOPS.map(({ value, color }) => ({ value, color })) },
-            imagePath: `/sea-temperature/image?time=${encodeURIComponent(field.time)}`,
+            // La huella de la imagen va en la URL: si cambia el dibujo (recuadro, costa, colores),
+            // el navegador no reusa la anterior de su caché.
+            imagePath: `/sea-temperature/image?time=${encodeURIComponent(field.time)}&v=${createHash('sha1').update(png).digest('hex').slice(0, 10)}`,
           },
         };
       });

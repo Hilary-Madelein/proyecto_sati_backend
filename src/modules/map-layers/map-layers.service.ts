@@ -172,6 +172,8 @@ export class MapLayersService implements OnApplicationBootstrap {
       const body = Buffer.from(await response.arrayBuffer());
       return body.length > 0 ? { body, cacheSeconds: layer.tileCacheSeconds } : null;
     } catch (error) {
+      // ArcGIS responde 404 donde no hay trazado (mar, zonas sin vías): es una tesela vacía, no un error.
+      if (error instanceof UpstreamError && error.status === 404) return null;
       if (error instanceof UpstreamError) throw new BadGatewayException(error.message);
       throw error;
     }

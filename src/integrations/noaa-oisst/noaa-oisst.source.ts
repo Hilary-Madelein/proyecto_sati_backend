@@ -8,8 +8,11 @@ import { latestOisstFile, parseOisstNetcdf } from './oisst-netcdf.js';
 
 const SERVICE = 'NOAA OISST';
 
-/** Recuadro pedido, en grados: mar frente a Ecuador y la región Niño 1+2 (0–10°S, 90–80°O). */
-const BBOX = { south: -10, north: 3, west: -90, east: -77 } as const;
+/**
+ * Recuadro pedido, en grados: mar frente a Ecuador, la región Niño 1+2 (0–10°S, 90–80°O)
+ * y todo Galápagos (las islas llegan a ~92°O; con margen, 93°O).
+ */
+const BBOX = { south: -10, north: 3, west: -93, east: -77 } as const;
 
 /** Parte decimal de las coordenadas de ERDDAP viene con ruido de punto flotante: se agrupa por milésimas. */
 const key = (value: number) => Math.round(value * 1000);

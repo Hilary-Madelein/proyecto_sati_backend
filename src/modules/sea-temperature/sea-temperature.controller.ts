@@ -25,7 +25,7 @@ export class SeaTemperatureController {
   @ApiOperation({ summary: 'Imagen PNG de la anomalía, lista para superponer en el mapa' })
   async image(@Res({ passthrough: true }) response: Response): Promise<StreamableFile> {
     const png = await this.sea.image();
-    // La URL lleva el día del dato (`time`): cambia sola cuando llega uno nuevo.
+    // La URL lleva el día del dato (`time`) y la huella de la imagen (`v`): cambia sola cuando cambia cualquiera.
     response.setHeader('Cache-Control', 'public, max-age=3600');
     return new StreamableFile(png, { type: 'image/png' });
   }

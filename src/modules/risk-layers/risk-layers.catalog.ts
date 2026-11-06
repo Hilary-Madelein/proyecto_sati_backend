@@ -13,6 +13,29 @@ const SURVEY_REFRESH = 15;
 /** Capas de referencia que casi no cambian. */
 const STATIC_REFRESH = 12 * 60;
 
+/** Campos de las instituciones educativas del MINEDUC (las dos vistas tienen los mismos). */
+const MINEDUC_FIELDS = [
+  'AMIE',
+  'NOM_INSTIT',
+  'SUSCEPTIBI',
+  'SUSCEPTI_1',
+  'TIPOLOGÍA',
+  'SOSTENI',
+  'JURISDICCI',
+  'REGIMEN',
+  'ESTUDIANTE',
+  'DOCENTES',
+  'JORNADA',
+  'MODALIDAD',
+  'ACCESO',
+  'CONECTIVIDAD',
+  'AREA',
+  'NOMBRE_DIS',
+  'DPA_DESPAR',
+  'DPA_DESCAN',
+  'DPA_DESPRO',
+] as const;
+
 const RPIS_FIELDS = ['UNI_NOMBRE', 'TUN_DESCRI', 'NIVEL_DESC', 'IGU_DESCRI', 'PAR_DESCRI', 'CAN_DESCRI', 'PRV_DESCRI'] as const;
 
 /**
@@ -132,34 +155,40 @@ export const RISK_LAYERS: readonly RiskLayerDefinition[] = [
     source: { kind: 'file', file: 'poblados-inundables.geojson' },
   },
   {
-    id: 'schools',
-    title: 'Instituciones educativas en zonas susceptibles',
+    id: 'schools-floods',
+    title: 'Educación: susceptibles a inundaciones',
     component: 'exposicion',
     attribution: 'MINEDUC',
     source: {
       kind: 'arcgis',
-      layerUrl: `${SNGR_AGOL}/MINEDUC_Inundaciones_y_Movimientos_en_Masa/FeatureServer/9`,
-      fields: [
-        'AMIE',
-        'NOM_INSTIT',
-        'SUSCEPTIBI',
-        'SUSCEPTI_1',
-        'TIPOLOGÍA',
-        'SOSTENI',
-        'JURISDICCI',
-        'REGIMEN',
-        'ESTUDIANTE',
-        'DOCENTES',
-        'JORNADA',
-        'MODALIDAD',
-        'ACCESO',
-        'CONECTIVIDAD',
-        'AREA',
-        'NOMBRE_DIS',
-        'DPA_DESPAR',
-        'DPA_DESCAN',
-        'DPA_DESPRO',
-      ],
+      // Vista del SNGR: solo las de susceptibilidad media o alta a inundaciones (SUSCEPTI_1).
+      layerUrl: `${SNGR_AGOL}/MINEDUC_Susceptibles_a_Inundaciones_(Vista)/FeatureServer/9`,
+      fields: MINEDUC_FIELDS,
+      refreshMinutes: STATIC_REFRESH,
+    },
+  },
+  {
+    id: 'schools-mass-movements',
+    title: 'Educación: susceptibles a movimientos en masa',
+    component: 'exposicion',
+    attribution: 'MINEDUC',
+    source: {
+      kind: 'arcgis',
+      // Vista del SNGR: solo las de susceptibilidad media o alta a movimientos en masa (SUSCEPTI_1).
+      layerUrl: `${SNGR_AGOL}/MINEDUC_Suscetibles_a_Movimientos_en_Masa_(Vista)/FeatureServer/9`,
+      fields: MINEDUC_FIELDS,
+      refreshMinutes: STATIC_REFRESH,
+    },
+  },
+  {
+    id: 'power-plants',
+    title: 'Centrales eléctricas',
+    component: 'exposicion',
+    attribution: 'SNGR · Centrales eléctricas',
+    source: {
+      kind: 'arcgis',
+      layerUrl: `${SNGR_AGOL}/Centrales_El%C3%A9ctricas/FeatureServer/4`,
+      fields: ['CENTRAL', 'Tipo_Cen_1', 'TIPO_ENERG', 'TIPO_SERVI', 'POT_NOMINA', 'POT_EFECTI', 'PROVINCIA', 'CANTON', 'PARROQUIA'],
       refreshMinutes: STATIC_REFRESH,
     },
   },
@@ -382,8 +411,8 @@ export const RISK_LAYERS: readonly RiskLayerDefinition[] = [
     attribution: 'MIT',
     source: {
       kind: 'arcgis',
-      // Encuesta "Reportes de Novedad Vial" de las direcciones distritales del MIT (octubre 2026).
-      layerUrl: `${SNGR_AGOL}/service_1e73ad07db8c4995aef116e7f082191a/FeatureServer/0`,
+      // Encuesta "Reportes de Novedad Vial" de las direcciones distritales del MIT, versión con fotos (noviembre 2026).
+      layerUrl: `${SNGR_AGOL}/service_97253494f4bf4aa687956783113d55bd/FeatureServer/0`,
       // Sin el responsable del reporte ni quién lo cargó (datos personales).
       fields: [
         'fecha_actua',
@@ -406,6 +435,10 @@ export const RISK_LAYERS: readonly RiskLayerDefinition[] = [
         'insti_involucradas',
         'otra_insti_invu',
         'maq_perso',
+        // Cuánto personal se requiere (cantidades o sí/no, no nombres).
+        'persnl_tecnico',
+        'persnl_operd_maq',
+        'persnl_microempresas',
         'fecha_estim_hab',
         'horas_transcurridas',
         'dias_transcurridos',
