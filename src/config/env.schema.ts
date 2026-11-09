@@ -92,12 +92,20 @@ export const envSchema = z.object({
 
   // ── Capas WMS (GeoServer del INAMHI servido por GeoGLOWS) ────────────────
   /**
-   * De dónde sale la lluvia pronosticada día por día: "geoglows" = la lluvia
-   * diaria que publica el visor oficial del INAMHI (inamhi.geoglows.org, con
-   * corridas pasadas); "inamhi" = catálogo del INAMHI (geoservicios, dataset
-   * 355): suma de pasos de 3 h, que da ~la mitad (diferencia por aclarar con el INAMHI).
+   * De dónde sale la lluvia pronosticada: "auto" (por defecto) = la de los dos
+   * servicios con la corrida más reciente, y el otro si uno falla; "geoglows" =
+   * solo la lluvia diaria del visor oficial del INAMHI (inamhi.geoglows.org, con
+   * corridas pasadas); "inamhi" = solo el catálogo del INAMHI (geoservicios,
+   * dataset 355: pasos de 3 h, ver INAMHI_WRF_STEP_SCALE).
    */
-  RAIN_FORECAST_SOURCE: z.enum(['inamhi', 'geoglows']).default('geoglows'),
+  RAIN_FORECAST_SOURCE: z.enum(['auto', 'inamhi', 'geoglows']).default('auto'),
+  /**
+   * Factor de los pasos de 3 h del catálogo del INAMHI. Vienen a la mitad de la
+   * lluvia diaria del visor oficial, que es la que calza con las estaciones
+   * (pronóstico/medido 1,07 en 510 estación-día, oct–nov 2026): ×2 los deja en
+   * la misma escala. Cambiarlo si el INAMHI aclara otra cosa.
+   */
+  INAMHI_WRF_STEP_SCALE: z.coerce.number().positive().default(2),
   /** Catálogo del INAMHI: capa WRF de 3 h (dataset 355). */
   INAMHI_WRF_WMS_URL: z.url().default('https://geoservicios.inamhi.gob.ec/geoserver/geonode/wrf_tiempo_precipitacion/wms'),
   INAMHI_WRF_WCS_URL: z.url().default('https://geoservicios.inamhi.gob.ec/geoserver/ows'),

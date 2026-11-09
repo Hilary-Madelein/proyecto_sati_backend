@@ -86,3 +86,12 @@ export function fillGaps(grid: RasterGrid, passes: number): RasterGrid {
   }
   return { ...grid, values, noData: null };
 }
+
+/** La grilla multiplicada por un factor (las celdas sin dato quedan igual). */
+export function scaleGrid(grid: RasterGrid, factor: number): RasterGrid {
+  if (factor === 1) return grid;
+  return {
+    ...grid,
+    values: grid.values.map((value) => (value === grid.noData || !Number.isFinite(value) ? value : value * factor)),
+  };
+}

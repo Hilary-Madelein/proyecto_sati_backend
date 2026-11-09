@@ -257,8 +257,10 @@ Pendiente de definir el servidor.
 
 La lluvia es la capa diaria que publica el visor oficial del INAMHI (inamhi.geoglows.org).
 El backend entrega un día a la vez (día 1 = 0–24 h, 2 = 24–48 h, 3 = 48–72 h desde el
-inicio de la corrida), **sin sumar días entre sí**. (Alternativa: `RAIN_FORECAST_SOURCE=inamhi`,
-catálogo del INAMHI.)
+inicio de la corrida), **sin sumar días entre sí**. Por defecto (`RAIN_FORECAST_SOURCE=auto`)
+se usa el servicio con la corrida más reciente entre ese visor y el catálogo del INAMHI, y el
+otro si uno falla. Los pasos de 3 h de ambos vienen a la mitad de la lluvia diaria del visor
+(que es la que calza con las estaciones): se multiplican por 2 (`INAMHI_WRF_STEP_SCALE`).
 
 1. Descarga la lluvia del día en grilla por WCS (GeoTIFF, ~3 km).
 2. Pinta un PNG con la paleta oficial de lluvia diaria del INAMHI, suavizado, recortado

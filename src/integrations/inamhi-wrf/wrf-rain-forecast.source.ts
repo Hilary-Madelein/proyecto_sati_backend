@@ -4,7 +4,7 @@ import { fetchWithRetry } from '../../common/http/fetch-with-retry.js';
 import { UpstreamError } from '../../common/http/upstream.error.js';
 import type { ColorStop } from '../../common/raster/color-ramp.js';
 import { readGeoTiffGrid } from '../../common/raster/geotiff.js';
-import { sumGrids, type RasterGrid } from '../../common/raster/raster-grid.js';
+import { scaleGrid, sumGrids, type RasterGrid } from '../../common/raster/raster-grid.js';
 import { colorStopsFromLegendGraphic, type LegendGraphicJson } from '../../common/wms/legend-graphic.js';
 import { parseWmsLayerDimensions } from '../../common/wms/wms-capabilities.js';
 import { AppConfigService } from '../../config/app-config.service.js';
@@ -81,7 +81,7 @@ export class WrfRainForecastSource extends RainForecastSource {
       run: steps.run,
       from: new Date(Date.parse(ends[0]) - STEP_MS).toISOString(),
       to: ends[ends.length - 1],
-      grid: scaled(sumGrids(grids), STEP_SCALE),
+      grid: scaleGrid(sumGrids(grids), STEP_SCALE),
     };
   }
 
@@ -155,12 +155,4 @@ export class WrfRainForecastSource extends RainForecastSource {
       return stops;
     });
   }
-}
-
-/** La grilla multiplicada por un factor (las celdas sin dato quedan igual). */
-function scaled(grid: RasterGrid, factor: number): RasterGrid {
-  return {
-    ...grid,
-    values: grid.values.map((value) => (value === grid.noData || !Number.isFinite(value) ? value : value * factor)),
-  };
 }

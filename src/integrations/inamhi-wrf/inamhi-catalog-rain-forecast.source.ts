@@ -5,7 +5,7 @@ import { fetchWithRetry } from '../../common/http/fetch-with-retry.js';
 import { UpstreamError } from '../../common/http/upstream.error.js';
 import type { ColorStop } from '../../common/raster/color-ramp.js';
 import { readGeoTiffGrid } from '../../common/raster/geotiff.js';
-import { sumGrids, type RasterGrid } from '../../common/raster/raster-grid.js';
+import { scaleGrid, sumGrids, type RasterGrid } from '../../common/raster/raster-grid.js';
 import { parseWmsLayerDimensions } from '../../common/wms/wms-capabilities.js';
 import { AppConfigService } from '../../config/app-config.service.js';
 import {
@@ -82,8 +82,10 @@ export function runFromSteps(times: readonly string[]): ForecastRun | null {
  * Lluvia pronosticada del WRF del INAMHI desde su propio catálogo
  * (geoservicios.inamhi.gob.ec, dataset 355): pasos de 3 h, actualizados a
  * diario, ~7 días atrás y 3 adelante. La lluvia de cada día es la suma de sus
- * 8 pasos de 3 h. No guarda corridas pasadas: para el histórico ver el
- * archivo de lluvia (repositorio sati-archivo-lluvia).
+ * 8 pasos de 3 h, por INAMHI_WRF_STEP_SCALE (×2 por defecto): los pasos vienen a
+ * la mitad de la lluvia diaria del visor oficial, como los de 3 h de GeoGLOWS
+ * (comprobado el 9 nov 2026: suma INAMHI / suma 3 h GeoGLOWS = 1,05). No guarda
+ * corridas pasadas: para el histórico ver el archivo de lluvia (sati-archivo-lluvia).
  */
 @Injectable()
 export class InamhiCatalogRainForecastSource extends RainForecastSource {
@@ -101,7 +103,11 @@ export class InamhiCatalogRainForecastSource extends RainForecastSource {
     return times.length ? runFromSteps(times) : null;
   }
 
-  /** Aquí la lluvia diaria es la suma de sus 8 pasos: la ventana usa la misma escala, sin ajuste. */
+  /** Factor de los pasos (ver INAMHI_WRF_STEP_SCALE): la ventana y el día quedan en la escala de la lluvia diaria oficial. */
+  private get scale(): number {
+    return this.config.get('INAMHI_WRF_STEP_SCALE');
+  }
+
   async getNextHoursGrid(hours: number, now: number): Promise<WindowRainGrid | null> {
     const times = await this.timesCache.get('steps', () => this.stepTimes());
     const run = runFromSteps(times);
@@ -112,7 +118,7 @@ export class InamhiCatalogRainForecastSource extends RainForecastSource {
       run: run.run,
       from: new Date(Date.parse(ends[0]) - STEP_MS).toISOString(),
       to: ends[ends.length - 1],
-      grid: sumGrids(grids),
+      grid: scaleGrid(sumGrids(grids), this.scale),
     };
   }
 
@@ -127,7 +133,7 @@ export class InamhiCatalogRainForecastSource extends RainForecastSource {
 
   async getDailyGrid(_run: string, time: string): Promise<RasterGrid> {
     const steps = await mapWithConcurrency(stepsOfDay(time), 4, (step) => this.stepGrid(step));
-    return sumGrids(steps);
+    return scaleGrid(sumGrids(steps), this.scale);
   }
 
   async getColorStops(): Promise<ColorStop[]> {
