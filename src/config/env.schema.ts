@@ -165,10 +165,10 @@ export const envSchema = z.object({
   // ── Gemini: análisis de la situación redactado con IA ────────────────────
   /** Clave de la API de Gemini (Google AI Studio). Solo backend. Vacío = el análisis sale con el texto de plantilla. */
   GEMINI_API_KEY: z.string().optional().or(z.literal('').transform(() => undefined)),
-  /** Modelos en orden de preferencia: si uno está saturado o falla, se prueba el siguiente. */
+  /** Modelos en orden de preferencia: si uno está saturado, agotó su cuota del día o falla, se prueba el siguiente (cada uno tiene su cuota). */
   GEMINI_MODELS: z
     .string()
-    .default('gemini-3.5-flash,gemini-flash-lite-latest')
+    .default('gemini-3.5-flash,gemini-flash-lite-latest,gemini-3.1-flash-lite')
     .transform((value) =>
       value
         .split(',')

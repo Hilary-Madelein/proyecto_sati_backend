@@ -32,7 +32,7 @@ const parish = (point: ParishPoint, semaphore: string, categoryLabel: string, mm
   semaphore,
   category: categoryLabel.toLowerCase(),
   categoryLabel,
-  forecast: { mm3h: 12.4, mm6h: null, mm12h: null, mm24h },
+  forecast: { mm3h: 12.4, mm6h: null, mm12h: null, mm24h, category24h: categoryLabel.toLowerCase() },
   decidedBy,
 });
 
@@ -41,6 +41,9 @@ const canton = (code: string, name: string, province: string, riverAlerts: numbe
   name,
   province,
   triggers: { riverAlerts, riverMaxLevel, floodHubFlagged: 0, sngrEvents: 0, criticalPoints: 0 },
+  exposed: { floodTowns: 4, schools: 30, schoolsHighFlood: 12, students: 5210, healthCenters: 9, healthFloodSusceptible: 0, bridges: 6, bridgesBad: 1, rveKm: 80.4, rveCautionKm: 0 },
+  preventive: { actions: 2, enosWorksActive: 0, culverts: 0 },
+  response: { shelters: 3, sheltersActive: 0, provinceMachinery: 15, camps: 1, roadEventsOpen: 0, responseActions: 0 },
 });
 
 const analysis = {
@@ -53,6 +56,10 @@ const analysis = {
   sources: [
     { name: 'Alertas por caudal', ok: true, detail: '' },
     { name: 'Índice de preparación', ok: false, detail: 'falló' },
+  ],
+  provinces: [
+    { name: 'Guayas', level: 'high' },
+    { name: 'Manabi', level: 'low' },
   ],
 } as unknown as CantonAnalysisSnapshot;
 
@@ -103,6 +110,10 @@ describe('datos del análisis de la situación', () => {
       lluviaMm: 119,
       enLasProximasHoras: 24,
       categoriaDeLluvia: 'torrencial',
+      umbralDeEsaCategoriaMm: 100,
+      comparacionConElUmbral: 'apenas sobre el umbral',
+      lluviaEn24HorasMm: 119,
+      categoriaEn24Horas: 'torrencial',
       alerta: 'muy alta',
     });
     expect(facts.pronosticoDeLluvia?.consecuenciasPosiblesSegunLaCategoriaMasAlta).toContain('desbordamientos');
@@ -116,12 +127,38 @@ describe('datos del análisis de la situación', () => {
     expect(facts.inundacionesReportadas).toMatchObject({ total: 1, criticas: 1, conDanios: 1, personasAfectadas: 40 });
     expect(facts.inundacionesReportadas?.masGraves[0]).toMatchObject({ tipo: 'desborde de río', canton: 'Chone', nivel: 'crítico' });
     expect(facts.datosNoDisponibles).toEqual(['Índice de preparación']);
+    // El contexto del cantón con más parroquias en alerta: lo que coincide con el pronóstico y lo expuesto.
+    expect(facts.cantonesConParroquiasEnAlerta).toEqual([
+      {
+        canton: 'Chone',
+        provincia: 'Manabí',
+        parroquiasEnAlertaAltaOMuyAlta: 2,
+        senialesQueCoinciden: [
+          '85 mm ya medidos en las últimas 24 horas (el suelo ya está mojado)',
+          '7 tramos de río en alerta por caudal',
+          'crecida repentina muy probable según Google (no confirmada por la SNGR)',
+        ],
+        respaldoDeLaAlerta: 'reforzada por varias señales',
+        expuesto: [
+          '4 poblaciones propensas a inundaciones',
+          '12 instituciones educativas con susceptibilidad alta a inundación',
+          '1 puente en mal estado',
+        ],
+        recursos: ['3 alojamientos temporales'],
+      },
+    ]);
   });
 
   it('del país suma todo y reparte por provincia', () => {
     const facts = buildFacts(NATIONAL_SCOPE, inputs);
     expect(facts.pronosticoDeLluvia).toMatchObject({ parroquiasConPronostico: 3, parroquiasEnAlertaModerada: 1 });
     expect(facts.rios?.tramosDeRioEnAlerta).toBe(9);
+    // Del país: sumas de todos los cantones, la maquinaria una vez por provincia y sin comparación entre provincias.
+    expect(facts.vulnerabilidadYPreparacion).toMatchObject({
+      expuesto: { poblacionesPropensasAInundaciones: 8, estudiantesEnEsasInstituciones: 10420, kmDeRedVialEstatal: 161 },
+      preparacion: { alojamientosTemporales: 6, equiposDeMaquinariaPesada: 30 },
+    });
+    expect(facts.vulnerabilidadYPreparacion?.lectura).toBeUndefined();
     expect(facts.inundacionesReportadas?.total).toBe(2);
     expect(facts.crecidasRepentinas?.cantones).toEqual(['Chone (Manabí)']);
   });
@@ -130,7 +167,7 @@ describe('datos del análisis de la situación', () => {
     const facts = buildFacts(NATIONAL_SCOPE, { ...inputs, analysis: null, stations: null, flashFloods: null, events: null });
     expect(facts.pronosticoDeLluvia).toBeNull();
     expect(facts.rios).toBeNull();
-    expect(facts.datosNoDisponibles).toEqual(['Pronóstico de lluvia', 'Lluvia medida en estaciones', 'Crecidas repentinas de Google', 'Eventos de la SNGR']);
+    expect(facts.datosNoDisponibles).toEqual(['Pronóstico de lluvia', 'Capas de exposición y respuesta', 'Lluvia medida en estaciones', 'Crecidas repentinas de Google', 'Eventos de la SNGR']);
   });
 
   it('una crecida de Google vencida no cuenta', () => {
@@ -141,7 +178,7 @@ describe('datos del análisis de la situación', () => {
 
 describe('control de cifras', () => {
   const facts = buildFacts(provinceScope('Manabí'), inputs);
-  const text = (observed: string): SituationText => ({ headline: 'Lluvia torrencial prevista en Chone.', observed, expected: 'Se prevén 119 mm en 24 horas.', meaning: 'Puede haber desbordes.' });
+  const text = (observed: string): SituationText => ({ headline: 'Lluvia torrencial prevista en Chone.', observed, expected: 'Se prevén 119 mm en 24 horas.', meaning: 'Puede haber desbordes.', vulnerability: 'Hay 4 poblaciones propensas.' });
 
   it('lee los números con separador de miles y con decimales', () => {
     expect(numbersIn('1.200 personas, 85,5 mm y 3 vías a las 15:00')).toEqual([1200, 85.5, 3, 15, 0]);
@@ -159,13 +196,50 @@ describe('control de cifras', () => {
 describe('texto de plantilla', () => {
   it('arma las cuatro partes con lo que hay', () => {
     const text = templateText(buildFacts(provinceScope('Manabí'), inputs));
-    expect(text.headline).toBe('Se espera lluvia fuerte en la provincia de Manabí: 2 parroquias en alerta alta o muy alta en las próximas 24 horas.');
+    expect(text.headline).toBe('Se prevé lluvia torrencial en la provincia de Manabí: 1 en alerta muy alta y 1 en alerta alta, de 2 parroquias con pronóstico.');
     expect(text.observed).toContain('midió 85 mm en las últimas 24 horas, lluvia de categoría intensa');
     expect(text.observed).toContain('1 inundación en las últimas 24 horas, 1 con daños');
-    expect(text.expected).toContain('Chone (cantón Chone): 119 mm en las próximas 24 horas, categoría torrencial');
+    expect(text.expected).toContain('Chone (cantón Chone): 119 mm en las próximas 24 horas, que apenas supera el umbral de lluvia torrencial para ese periodo (100 mm)');
     expect(text.expected).toContain('crecida repentina en 1 cantón (no confirmado por la SNGR)');
     expect(text.expected).toContain('7 tramos de río');
-    expect(text.meaning).toContain('Sigue los avisos oficiales');
+    expect(text.vulnerability).toBe(
+      'La provincia de Manabí tiene 4 poblaciones propensas a inundaciones, 12 instituciones educativas con susceptibilidad alta a inundación y 1 puente en mal estado. ' +
+        'Lo expuesto se concentra en Chone. Para responder cuenta con 3 alojamientos temporales y 15 equipos de maquinaria pesada. ' +
+        'Frente al país ocupa el puesto 1 de 2 provincias por instituciones educativas con susceptibilidad alta a inundación y puesto 1 de 2 provincias por poblaciones propensas a inundaciones (el puesto 1 es la que más tiene). ' +
+        'Su preparación es baja según el índice: puesto 2 de 2 (el 1 es la más preparada). En resumen: exposición alta frente a las demás provincias y preparación baja según el índice.',
+    );
+    expect(text.meaning).toBe(
+      'El cantón con más parroquias en alerta es Chone (2). En Chone la alerta coincide con 85 mm ya medidos en las últimas 24 horas (el suelo ya está mojado), ' +
+        '7 tramos de río en alerta por caudal y crecida repentina muy probable según Google (no confirmada por la SNGR), lo que hace más probable que haya afectaciones. ' +
+        'En ese cantón hay 4 poblaciones propensas a inundaciones, 12 instituciones educativas con susceptibilidad alta a inundación y 1 puente en mal estado. ' +
+        'Puede haber inundaciones potencialmente severas, desbordamientos y afectaciones a infraestructura. Sigue los avisos oficiales de la SNGR y del INAMHI.',
+    );
+  });
+
+  it('una lluvia corta en una sola parroquia se cuenta como localizada, con su periodo, su umbral y el total del día', () => {
+    const point = (index: number): ParishPoint => ({ ...PARISHES[0], code: `1101${index}`, name: `Parroquia ${index}`, cantonCode: '1109', canton: 'Chaguarpamba', province: 'Loja' });
+    const calm = Array.from({ length: 30 }, (_, index) => ({ ...parish(point(index), 'green', 'Ligera', 2), forecast: { mm3h: 0.5, mm6h: 1, mm12h: 1.5, mm24h: 2, category24h: 'ligera' } }));
+    const burst = { ...parish({ ...point(99), name: 'El Rosario' }, 'orange', 'Intensa', 14.2, '3h'), forecast: { mm3h: 12.4, mm6h: 13, mm12h: 13.5, mm24h: 14.2, category24h: 'moderada' } };
+    const facts = buildFacts(provinceScope('Loja'), { ...inputs, analysis: { ...analysis, parishes: [burst, ...calm] } as unknown as CantonAnalysisSnapshot });
+    expect(facts.pronosticoDeLluvia).toMatchObject({ extensionDeLaAlerta: 'puntual', categoriaDeLluviaMasAlta: 'intensa', parroquiasConPronostico: 31 });
+    expect(facts.pronosticoDeLluvia?.lugaresConMasLluviaEsperada[0]).toMatchObject({
+      lluviaMm: 12,
+      enLasProximasHoras: 3,
+      umbralDeEsaCategoriaMm: 10,
+      comparacionConElUmbral: 'apenas sobre el umbral',
+      lluviaEn24HorasMm: 14,
+      categoriaEn24Horas: 'moderada',
+    });
+    const text = templateText(facts);
+    expect(text.headline).toBe('Se prevé lluvia intensa localizada en la provincia de Loja: 1 en alerta alta, de 31 parroquias con pronóstico.');
+    expect(text.expected).toContain('12 mm en las próximas 3 horas, que apenas supera el umbral de lluvia intensa para ese periodo (10 mm)');
+    expect(text.expected).toContain('En 24 horas se esperan allí 14 mm, categoría moderada.');
+    expect(facts.cantonesConParroquiasEnAlerta[0]).toMatchObject({ canton: 'Chaguarpamba', senialesQueCoinciden: [], respaldoDeLaAlerta: 'señal aislada: solo el pronóstico de lluvia' });
+    expect(text.meaning).toBe(
+      'Es una lluvia localizada, no una situación general del lugar. En Chaguarpamba es una señal aislada: no hay lluvia previa importante, ríos en alerta ni ' +
+        'inundaciones recientes que la refuercen, así que pide atención más que alarma. Puede haber inundaciones urbanas, crecidas rápidas y posibles desbordamientos localizados. ' +
+        'Sigue los avisos oficiales de la SNGR y del INAMHI.',
+    );
   });
 
   it('sin datos no afirma nada', () => {
@@ -176,7 +250,7 @@ describe('texto de plantilla', () => {
 });
 
 describe('servicio del análisis de la situación', () => {
-  const written: SituationText = { headline: 'Lluvia torrencial prevista en Chone.', observed: 'Se midieron 85 mm.', expected: 'Se prevén 119 mm en 24 horas.', meaning: 'Puede haber desbordes.' };
+  const written: SituationText = { headline: 'Lluvia torrencial prevista en Chone.', observed: 'Se midieron 85 mm.', expected: 'Se prevén 119 mm en 24 horas.', meaning: 'Puede haber desbordes.', vulnerability: 'Hay 4 poblaciones propensas.' };
   let generateJson: ReturnType<typeof vi.fn>;
   let gemini: { enabled: boolean; generateJson: ReturnType<typeof vi.fn> };
   let service: SituationAnalysisService;
@@ -220,7 +294,7 @@ describe('servicio del análisis de la situación', () => {
   });
 
   it('un texto demasiado largo se descarta y sale la plantilla', async () => {
-    generateJson.mockResolvedValueOnce({ value: { ...written, meaning: 'palabra '.repeat(200) }, model: 'modelo-a' });
+    generateJson.mockResolvedValueOnce({ value: { ...written, meaning: 'palabra '.repeat(400) }, model: 'modelo-a' });
     expect((await service.forProvince('Manabí')).writer).toBe('template');
   });
 

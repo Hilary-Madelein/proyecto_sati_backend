@@ -41,6 +41,7 @@ export function analysisMessage(analysis: SituationAnalysis): string {
     `<b>Lo medido y reportado:</b> ${escapeHtml(analysis.observed)}`,
     `<b>Lo que se espera:</b> ${escapeHtml(analysis.expected)}`,
     `<b>Qué significa:</b> ${escapeHtml(analysis.meaning)}`,
+    `<b>Vulnerabilidad del lugar:</b> ${escapeHtml(analysis.vulnerability)}`,
     ...(analysis.missing.length > 0 ? [`<i>Sin datos ahora de: ${escapeHtml(analysis.missing.join(', '))}.</i>`] : []),
     `<i>Fuentes: ${escapeHtml(analysis.sources)}. ${escapeHtml(analysis.note)}</i>`,
   ].join('\n\n');

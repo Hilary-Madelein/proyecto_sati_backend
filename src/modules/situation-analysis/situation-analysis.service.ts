@@ -202,6 +202,7 @@ export class SituationAnalysisService {
         observed: plainText(value.observed),
         expected: plainText(value.expected),
         meaning: plainText(value.meaning),
+        vulnerability: plainText(value.vulnerability),
       };
       const invented = inventedNumbers(text, facts);
       if (invented.length > 0) {

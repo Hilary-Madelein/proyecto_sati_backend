@@ -105,6 +105,7 @@ describe('alertas de crecidas por Telegram', () => {
       observed: 'Medido.',
       expected: 'Esperado.',
       meaning: 'Significa.',
+      vulnerability: 'Vulnerable.',
       writer: 'ai',
       model: 'modelo',
       sources: 'INAMHI',
