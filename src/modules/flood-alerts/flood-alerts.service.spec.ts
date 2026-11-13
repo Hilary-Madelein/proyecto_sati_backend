@@ -102,10 +102,8 @@ describe('alertas de crecidas por Telegram', () => {
       generatedAt: NOON.toISOString(),
       dataTime: 'dom, 1 nov, 15:00',
       headline: 'Se espera lluvia <fuerte>.',
-      observed: 'Medido.',
-      expected: 'Esperado.',
-      meaning: 'Significa.',
-      vulnerability: 'Vulnerable.',
+      situation: 'Pronóstico.',
+      plan: 'Plan.',
       writer: 'ai',
       model: 'modelo',
       sources: 'INAMHI',
@@ -385,7 +383,7 @@ describe('alertas de crecidas por Telegram', () => {
       expect(sent[1].message.text).toContain('La provincia de Guayas');
       // Lo que escribe la IA va escapado: Telegram rechaza HTML mal formado.
       expect(sent[1].message.text).toContain('Se espera lluvia &lt;fuerte&gt;.');
-      expect(sent[1].message.text).toContain('<b>Qué significa:</b> Significa.');
+      expect(sent[1].message.text).toContain('<b>Plan de contingencia:</b> Plan.');
     });
 
     it('/analisis con varias zonas arma un ámbito propio, y si falla lo dice', async () => {

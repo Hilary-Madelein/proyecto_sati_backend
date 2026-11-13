@@ -6,5 +6,7 @@ import { SeaTemperatureService } from './sea-temperature.service.js';
 @Module({
   controllers: [SeaTemperatureController],
   providers: [SeaTemperatureService],
+  // Lo usa el análisis de la situación (comparación con episodios anteriores de El Niño).
+  exports: [SeaTemperatureService],
 })
 export class SeaTemperatureModule {}

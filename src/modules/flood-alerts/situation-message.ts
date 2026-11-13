@@ -38,10 +38,9 @@ export function analysisMessage(analysis: SituationAnalysis): string {
   return [
     `🧠 <b>SATI · Análisis de la situación</b>\n📍 ${escapeHtml(cap(analysis.place))}\n🕒 Datos de: ${escapeHtml(analysis.dataTime)}`,
     `<b>${escapeHtml(analysis.headline)}</b>`,
-    `<b>Lo medido y reportado:</b> ${escapeHtml(analysis.observed)}`,
-    `<b>Lo que se espera:</b> ${escapeHtml(analysis.expected)}`,
-    `<b>Qué significa:</b> ${escapeHtml(analysis.meaning)}`,
-    `<b>Vulnerabilidad del lugar:</b> ${escapeHtml(analysis.vulnerability)}`,
+    `<b>Pronóstico y posibles afectaciones:</b> ${escapeHtml(analysis.situation)}`,
+    `<b>Plan de contingencia:</b> ${escapeHtml(analysis.plan)}`,
+    ...(analysis.reference ? [`<b>Referencia, episodios anteriores de El Niño:</b> ${escapeHtml(analysis.reference)}`] : []),
     ...(analysis.missing.length > 0 ? [`<i>Sin datos ahora de: ${escapeHtml(analysis.missing.join(', '))}.</i>`] : []),
     `<i>Fuentes: ${escapeHtml(analysis.sources)}. ${escapeHtml(analysis.note)}</i>`,
   ].join('\n\n');

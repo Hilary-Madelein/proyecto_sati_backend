@@ -3,13 +3,14 @@ import { GeminiClient } from '../../integrations/gemini/gemini.client.js';
 import { CantonAnalysisModule } from '../canton-analysis/canton-analysis.module.js';
 import { EventsModule } from '../events/events.module.js';
 import { FloodHubModule } from '../flood-hub/flood-hub.module.js';
+import { SeaTemperatureModule } from '../sea-temperature/sea-temperature.module.js';
 import { WeatherStationsModule } from '../weather-stations/weather-stations.module.js';
 import { SituationAnalysisController } from './situation-analysis.controller.js';
 import { SituationAnalysisService } from './situation-analysis.service.js';
 
 /** Análisis de la situación del momento redactado con Gemini, a pedido desde el visor y desde Telegram. */
 @Module({
-  imports: [CantonAnalysisModule, WeatherStationsModule, FloodHubModule, EventsModule],
+  imports: [CantonAnalysisModule, WeatherStationsModule, FloodHubModule, EventsModule, SeaTemperatureModule],
   controllers: [SituationAnalysisController],
   providers: [GeminiClient, SituationAnalysisService],
   // Lo usa el bot de Telegram ("Analizar la situación actual").

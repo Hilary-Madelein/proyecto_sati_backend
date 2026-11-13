@@ -5,8 +5,10 @@ import { loadParishes, type ParishPoint } from '../canton-analysis/parishes.js';
 import { FLOOD_HAZARD_TYPES } from '../events/domain/hazard-type.js';
 import { EventsService } from '../events/events.service.js';
 import { FloodHubService } from '../flood-hub/flood-hub.service.js';
+import { SeaTemperatureService } from '../sea-temperature/sea-temperature.service.js';
 import { WeatherStationsService } from '../weather-stations/weather-stations.service.js';
-import { EVENT_HOURS, NATIONAL_SCOPE, buildFacts, provincesScope, sameProvince, type SituationFacts, type SituationScope } from './situation-facts.js';
+import { loadParishBasins } from './basins.js';
+import { HISTORY_DAYS, NATIONAL_SCOPE, buildFacts, provincesScope, sameProvince, type SituationFacts, type SituationScope } from './situation-facts.js';
 import {
   ANSWER_SCHEMA,
   QUESTION_MAX_LENGTH,
@@ -16,6 +18,7 @@ import {
   inventedNumbers,
   isAnswerAcceptable,
   isTooLong,
+  ninoReference,
   plainText,
   questionPrompt,
   situationPrompt,
@@ -34,6 +37,8 @@ const MAX_AI_CALLS_PER_HOUR = 90;
 /** Provincias que se pueden pedir juntas (las 24 del país): más es un pedido mal armado. */
 const MAX_PROVINCES = 24;
 const HOUR_MS = 60 * MINUTE_MS;
+/** Tope de inundaciones del periodo de antecedentes que se leen de una vez. */
+const MAX_HISTORY_EVENTS = 5000;
 
 const SOURCES = 'INAMHI, SNGR, GEOGLOWS y Google Flood Hub';
 const AI_NOTE = 'Texto redactado con inteligencia artificial a partir de los datos del sistema. No reemplaza los avisos oficiales de la SNGR ni del INAMHI.';
@@ -45,6 +50,8 @@ export interface SituationAnalysis extends SituationText {
   generatedAt: string;
   /** Hora de los datos, ya escrita para mostrar (hora del Ecuador). */
   dataTime: string;
+  /** Referencia con los episodios anteriores de El Niño; null salvo que se prevea una lluvia excepcional. La escribe el sistema, no la IA. */
+  reference: string | null;
   /** Quién redactó: Gemini o, si no respondió, la plantilla. */
   writer: 'ai' | 'template';
   model: string | null;
@@ -73,8 +80,10 @@ interface Entry {
 
 /**
  * Análisis de la situación del momento, a pedido: junta lo que el sistema ya
- * calcula (pronóstico por parroquia, lluvia medida, crecidas de Google, ríos y
- * eventos de la SNGR), y Gemini lo redacta. Gemini no decide niveles ni cifras; si
+ * calcula (pronóstico por parroquia, lluvia medida, crecidas de Google, ríos,
+ * eventos de la SNGR, antecedentes, red vial, deslizamientos y los cantones vecinos
+ * de la misma cuenca), y Gemini lo redacta en dos párrafos: el pronóstico con lo que
+ * podría afectar y el plan de contingencia. Gemini no decide niveles ni cifras; si
  * no responde o escribe una cifra que no está en los datos, sale el texto de plantilla.
  */
 @Injectable()
@@ -82,6 +91,7 @@ export class SituationAnalysisService {
   private readonly logger = new Logger(SituationAnalysisService.name);
   private readonly entries = new Map<string, Entry>();
   private parishes: Promise<ParishPoint[]> | null = null;
+  private basins: Promise<Map<string, string>> | null = null;
   private aiCalls: number[] = [];
 
   constructor(
@@ -90,6 +100,7 @@ export class SituationAnalysisService {
     private readonly floodHub: FloodHubService,
     private readonly events: EventsService,
     private readonly gemini: GeminiClient,
+    private readonly sea: SeaTemperatureService,
   ) {}
 
   /** Del país, o de una o varias provincias por su nombre (con o sin tildes y mayúsculas; varias, separadas por comas). */
@@ -171,6 +182,7 @@ export class SituationAnalysisService {
       generatedAt: now.toISOString(),
       dataTime: facts.horaDeLosDatos,
       ...(written?.text ?? templateText(facts)),
+      reference: ninoReference(facts),
       writer: written ? 'ai' : 'template',
       model: written?.model ?? null,
       sources: SOURCES,
@@ -183,17 +195,21 @@ export class SituationAnalysisService {
   /** Cada fuente por separado: la que falle queda anotada y el análisis sale con las demás. */
   private async loadFacts(scope: SituationScope, now: Date): Promise<SituationFacts> {
     const attempt = <T>(load: () => Promise<T>): Promise<T | null> => load().catch(() => null);
-    const [parishPoints, analysis, stations, floodHub, events] = await Promise.all([
+    const [parishPoints, basins, sea, analysis, stations, floodHub, events] = await Promise.all([
       this.parishPoints(),
+      attempt(() => this.parishBasins()),
+      // Solo se usa si se prevé una lluvia excepcional (comparación con episodios anteriores de El Niño).
+      attempt(() => this.sea.current()),
       attempt(() => this.analysis.snapshot()),
       attempt(() => this.stations.snapshot()),
       attempt(() => this.floodHub.snapshot()),
       attempt(async () => {
-        const from = new Date(now.getTime() - EVENT_HOURS * HOUR_MS);
-        return (await this.events.list({ from, to: now, hazardTypes: [...FLOOD_HAZARD_TYPES] }, { limit: 1000, offset: 0 })).items;
+        // Todo el periodo de antecedentes; de ahí salen también las de las últimas horas.
+        const from = new Date(now.getTime() - HISTORY_DAYS * 24 * HOUR_MS);
+        return (await this.events.list({ from, to: now, hazardTypes: [...FLOOD_HAZARD_TYPES] }, { limit: MAX_HISTORY_EVENTS, offset: 0 })).items;
       }),
     ]);
-    return buildFacts(scope, { now, parishPoints, analysis, stations, flashFloods: floodHub?.flashFloods ?? null, events });
+    return buildFacts(scope, { now, parishPoints, analysis, stations, flashFloods: floodHub?.flashFloods ?? null, events, basins, sea });
   }
 
   /** Lo redacta Gemini; null si no hay clave, no responde, se pasó el tope o el texto trae una cifra que no está en los datos. */
@@ -207,10 +223,8 @@ export class SituationAnalysisService {
       });
       const text: SituationText = {
         headline: plainText(value.headline),
-        observed: plainText(value.observed),
-        expected: plainText(value.expected),
-        meaning: plainText(value.meaning),
-        vulnerability: plainText(value.vulnerability),
+        situation: plainText(value.situation),
+        plan: plainText(value.plan),
       };
       const invented = inventedNumbers(text, facts);
       if (invented.length > 0) {
@@ -238,5 +252,10 @@ export class SituationAnalysisService {
 
   private parishPoints(): Promise<ParishPoint[]> {
     return (this.parishes ??= loadParishes());
+  }
+
+  /** La cuenca de cada parroquia: se calcula una vez (el archivo no cambia). */
+  private parishBasins(): Promise<Map<string, string>> {
+    return (this.basins ??= this.parishPoints().then(loadParishBasins));
   }
 }

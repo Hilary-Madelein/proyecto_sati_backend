@@ -11,6 +11,7 @@ import { RiskLayersService } from '../risk-layers/risk-layers.service.js';
 import {
   CantonLocator,
   anchorOf,
+  zoneKm2ByCanton,
   bboxOf,
   distanceKm,
   ringsOf,
@@ -103,6 +104,12 @@ export interface CantonAnalysis {
     bridges: number;
     bridgesBad: number;
     floodTowns: number;
+    /** Instituciones educativas en zonas susceptibles a movimientos en masa (MINEDUC). */
+    schoolsLandslide: number;
+    /** Km² con susceptibilidad muy alta a movimientos en masa (SNGR); null si la capa no se pudo leer. */
+    landslideKm2: number | null;
+    /** Km² que el satélite vio inundados de forma frecuente u ocasional entre 1999 y 2020; null si no se pudo leer. */
+    floodHistoryKm2: number | null;
   };
   preventive: {
     actions: number;
@@ -119,6 +126,8 @@ export interface CantonAnalysis {
     roadEventsOpen: number;
     /** Acciones de respuesta del MIT registradas (despeje de derrumbes, variantes, taludes…). */
     responseActions: number;
+    /** Reportes de novedad vial del MIT con el evento aún abierto; null si la capa no se pudo leer. */
+    roadClosuresOpen: number | null;
   };
 }
 
@@ -187,6 +196,10 @@ export class CantonAnalysisService implements OnApplicationBootstrap, OnModuleDe
   // Los contornos no viajan en la respuesta: el visor tiene los suyos (archivo fijo) y los une por el código DPA.
   private readonly cantonsCache = new TtlCache<CantonShape[]>(24 * HOUR_MS, 1);
   private parishes: Promise<ParishPoint[]> | null = null;
+  /** Área de las zonas de cada capa por cantón, mientras la capa y los cantones sean los mismos. */
+  private readonly zoneAreas = new WeakMap<readonly GeoJsonFeature[], { shapes: readonly CantonShape[]; km2: Counter }>();
+  /** Cantón de cada punto de la malla con que se reparten esas áreas. */
+  private zoneCells: { shapes: readonly CantonShape[] | null; cells: Map<string, string | null> } = { shapes: null, cells: new Map() };
   private latest: CantonAnalysisSnapshot | null = null;
   private loading: Promise<CantonAnalysisSnapshot> | null = null;
   private refreshTimer?: NodeJS.Timeout;
@@ -337,6 +350,17 @@ export class CantonAnalysisService implements OnApplicationBootstrap, OnModuleDe
       }
       return counter;
     };
+    /** Km² de zonas por cantón. Las capas casi no cambian: se calcula una vez por cada descarga de la capa. */
+    const zoneKm2 = (features: readonly GeoJsonFeature[] | undefined, include: (feature: GeoJsonFeature) => boolean = () => true): Counter => {
+      if (!features) return new Map();
+      if (this.zoneCells.shapes !== shapes) this.zoneCells = { shapes, cells: new Map() };
+      let areas = this.zoneAreas.get(features);
+      if (!areas || areas.shapes !== shapes) {
+        areas = { shapes, km2: zoneKm2ByCanton(features.filter(include).map((feature) => feature.geometry), locator, this.zoneCells.cells) };
+        this.zoneAreas.set(features, areas);
+      }
+      return areas.km2;
+    };
     const roadEventsSince = new Date().setMonth(new Date().getMonth() - ROAD_EVENTS_MONTHS);
     const text = (feature: GeoJsonFeature, field: string) => String(feature.properties[field] ?? '').trim().toUpperCase();
 
@@ -375,6 +399,10 @@ export class CantonAnalysisService implements OnApplicationBootstrap, OnModuleDe
       bridges: countPoints(l.get('bridges')),
       bridgesBad: countPoints(l.get('bridges'), (f) => ['MALO', 'COLAPSADO'].includes(text(f, 'ESTADO'))),
       floodTowns: countPoints(l.get('flood-prone-towns')),
+      schoolsLandslide: countPoints(l.get('schools-mass-movements')),
+      landslideKm2: zoneKm2(l.get('mass-movements')),
+      floodHistoryKm2: zoneKm2(l.get('flood-history'), (f) => ['FRECUENTE', 'OCASIONAL'].includes(text(f, 'nivel'))),
+      roadClosuresOpen: countPoints(l.get('road-closures'), (f) => f.properties.Condicion_mapa !== 'Evento cerrado'),
       // Realizadas: las que ya empezaron (no las planificadas).
       // Preventivas ya iniciadas (la capa también puede traer acciones de respuesta).
       actions: countPoints(
@@ -433,6 +461,9 @@ export class CantonAnalysisService implements OnApplicationBootstrap, OnModuleDe
           bridges: get(counts.bridges, canton.code),
           bridgesBad: get(counts.bridgesBad, canton.code),
           floodTowns: get(counts.floodTowns, canton.code),
+          schoolsLandslide: get(counts.schoolsLandslide, canton.code),
+          landslideKm2: l.has('mass-movements') ? get(counts.landslideKm2, canton.code, 1) : null,
+          floodHistoryKm2: l.has('flood-history') ? get(counts.floodHistoryKm2, canton.code, 1) : null,
         },
         preventive: {
           actions: get(counts.actions, canton.code),
@@ -446,6 +477,7 @@ export class CantonAnalysisService implements OnApplicationBootstrap, OnModuleDe
           camps: get(counts.camps, canton.code),
           roadEventsOpen: get(counts.roadEventsOpen, canton.code),
           responseActions: get(counts.responseActions, canton.code),
+          roadClosuresOpen: l.has('road-closures') ? get(counts.roadClosuresOpen, canton.code) : null,
         },
       };
     });
@@ -621,17 +653,25 @@ export class CantonAnalysisService implements OnApplicationBootstrap, OnModuleDe
       'road-adverse-events',
       'mit-response-actions',
     ];
+    // Complementarias: si una falla, su dato queda en null y lo demás no se da por incompleto.
+    const optional = ['mass-movements', 'flood-history', 'road-closures'];
     const layers = new Map<string, GeoJsonFeature[]>();
     const failed: string[] = [];
+    const missingOptional: string[] = [];
     await Promise.all(
-      ids.map(async (id) => {
+      [...ids, ...optional].map(async (id) => {
         try {
           layers.set(id, (await this.riskLayers.get(id)).features);
         } catch {
-          failed.push(id);
+          (optional.includes(id) ? missingOptional : failed).push(id);
         }
       }),
     );
+    sources.push({
+      name: 'Deslizamientos, historial de inundaciones y cierres viales',
+      ok: missingOptional.length === 0,
+      detail: missingOptional.length ? `sin datos de: ${missingOptional.join(', ')}` : `${optional.length} capas`,
+    });
     sources.push({
       name: 'Capas de exposición y respuesta',
       ok: failed.length === 0,

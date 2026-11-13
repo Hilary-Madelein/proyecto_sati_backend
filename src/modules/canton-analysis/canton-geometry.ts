@@ -1,4 +1,4 @@
-import { isInsideRings, type Ring } from '../../common/geo/polygon.js';
+import { crossingsAtLatitude, isInsideRings, type Ring } from '../../common/geo/polygon.js';
 
 /** Cantón con su contorno listo para ubicar puntos (anillos [lng, lat] y recuadro). */
 export interface CantonShape {
@@ -90,4 +90,50 @@ export function anchorOf(geometry: { type: string; coordinates: unknown } | null
   return Array.isArray(current) && typeof current[0] === 'number' && typeof current[1] === 'number'
     ? [current[0], current[1]]
     : null;
+}
+
+/** Paso de la malla con que se reparte el área de las zonas entre cantones (grados; ~1,1 km). */
+const AREA_GRID_STEP = 0.01;
+
+/**
+ * Km² de unas zonas (Polygon o MultiPolygon) dentro de cada cantón. Una zona puede
+ * cruzar varios cantones, así que no se asigna entera a uno: se recorre una malla
+ * de puntos cada ~1,1 km y cada punto que cae dentro de una zona suma su celda al
+ * cantón donde está. Es una estimación (las zonas menores que una celda pueden no
+ * contarse), suficiente para cifras redondeadas a km². `cells` guarda el cantón de
+ * cada punto de la malla entre llamadas.
+ */
+export function zoneKm2ByCanton(
+  zones: readonly ({ type: string; coordinates: unknown } | null)[],
+  locator: CantonLocator,
+  cells: Map<string, string | null>,
+): Map<string, number> {
+  const step = AREA_GRID_STEP;
+  const result = new Map<string, number>();
+  for (const geometry of zones) {
+    const polygons = !geometry ? [] : geometry.type === 'Polygon' ? [geometry.coordinates as Ring[]] : geometry.type === 'MultiPolygon' ? (geometry.coordinates as Ring[][]) : [];
+    for (const rings of polygons) {
+      const [west, south, east, north] = bboxOf(rings);
+      for (let row = Math.ceil(south / step); row * step <= north; row++) {
+        const lat = row * step;
+        const crossings = crossingsAtLatitude(rings, lat);
+        const cellKm2 = (step * 111.32) ** 2 * Math.cos((lat * Math.PI) / 180);
+        // Entre cada par de cruces el punto está dentro (regla par-impar).
+        for (let i = 0; i + 1 < crossings.length; i += 2) {
+          const from = Math.max(Math.ceil(crossings[i] / step), Math.ceil(west / step));
+          const to = Math.min(Math.floor(crossings[i + 1] / step), Math.floor(east / step));
+          for (let column = from; column <= to; column++) {
+            const key = `${row}|${column}`;
+            let code = cells.get(key);
+            if (code === undefined) {
+              code = locator.locate(column * step, lat)?.code ?? null;
+              cells.set(key, code);
+            }
+            if (code) result.set(code, (result.get(code) ?? 0) + cellKm2);
+          }
+        }
+      }
+    }
+  }
+  return result;
 }
