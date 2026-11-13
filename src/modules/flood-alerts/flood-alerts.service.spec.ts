@@ -7,6 +7,7 @@ import type { JsonFilePersistence } from '../../storage/memory/json-file-persist
 import type { FloodHubService } from '../flood-hub/flood-hub.service.js';
 import type { FlashFloodArea, FlashFloodLikelihood } from '../flood-hub/flood-hub-source.js';
 import type { CantonAnalysisService } from '../canton-analysis/canton-analysis.service.js';
+import type { SituationAnalysisService } from '../situation-analysis/situation-analysis.service.js';
 import type { WeatherStationsService } from '../weather-stations/weather-stations.service.js';
 import { CantonCatalog } from './canton-catalog.js';
 import { TelegramChatEntity } from './entities/telegram-chat.entity.js';
@@ -57,6 +58,7 @@ describe('alertas de crecidas por Telegram', () => {
   let send: ReturnType<typeof vi.fn>;
   let editMessage: ReturnType<typeof vi.fn>;
   let analysisSnapshot: ReturnType<typeof vi.fn>;
+  let analyze: ReturnType<typeof vi.fn>;
   let service: FloodAlertsService;
   let bot: TelegramBotService;
 
@@ -95,7 +97,22 @@ describe('alertas de crecidas por Telegram', () => {
       }),
     } as unknown as WeatherStationsService;
     service = new FloodAlertsService(floodHub, telegram, chats, new InMemoryFlashFloodIssueStore(), deliveries, catalog, analysis, stations, config);
-    bot = new TelegramBotService(telegram, chats, service, catalog, config);
+    analyze = vi.fn(async (scope: { label: string }) => ({
+      place: scope.label,
+      generatedAt: NOON.toISOString(),
+      dataTime: 'dom, 1 nov, 15:00',
+      headline: 'Se espera lluvia <fuerte>.',
+      observed: 'Medido.',
+      expected: 'Esperado.',
+      meaning: 'Significa.',
+      writer: 'ai',
+      model: 'modelo',
+      sources: 'INAMHI',
+      note: 'Texto redactado con inteligencia artificial.',
+      missing: [],
+    }));
+    const situation = { analyze } as unknown as SituationAnalysisService;
+    bot = new TelegramBotService(telegram, chats, service, catalog, config, situation);
   });
 
   it('avisa una vez por emisión aunque se revise muchas veces', async () => {
@@ -170,7 +187,7 @@ describe('alertas de crecidas por Telegram', () => {
     expect(text).not.toContain('300');
     expect(text).toContain('Machala');
     expect(text).toContain('mm: lluvia pronosticada para 24 h');
-    expect(sent[0].message.buttons).toEqual([[{ label: '🔎 Más detalle', data: 'x' }]]);
+    expect(sent[0].message.buttons).toEqual([[{ label: '🔎 Más detalle', data: 'x' }], [{ label: '🧠 Analizar la situación actual', data: 'an' }]]);
   });
 
   it('con un solo cantón dice de dónde sale cada cifra', async () => {
@@ -344,7 +361,7 @@ describe('alertas de crecidas por Telegram', () => {
     it('Más detalle abre un mensaje aparte y navega en él sin tocar la alerta', async () => {
       await addChat('7');
       await service.check(NOON);
-      expect(sent[0].message.buttons).toEqual([[{ label: '🔎 Más detalle', data: 'x' }]]);
+      expect(sent[0].message.buttons).toEqual([[{ label: '🔎 Más detalle', data: 'x' }], [{ label: '🧠 Analizar la situación actual', data: 'an' }]]);
 
       sent.length = 0;
       await bot.handle(tap('x'));
@@ -355,6 +372,46 @@ describe('alertas de crecidas por Telegram', () => {
       await bot.handle(tap(button('🟠 Zona 8 · 1')));
       expect(editMessage.mock.calls.at(-1)?.[2]).toContain('<b>Guayaquil</b> · Guayas');
       expect(editMessage.mock.calls.at(-1)?.[2]).toContain('⚠️ A');
+    });
+
+    it('Analizar la situación actual avisa que tarda y envía el análisis de lo elegido', async () => {
+      await addChat('7', { zones: [], provinces: ['Guayas'], cantons: [] });
+      await bot.handle(tap('an'));
+      await vi.waitFor(() => expect(sent).toHaveLength(2));
+      expect(sent[0].message.text).toContain('Analizando');
+      expect(analyze.mock.calls[0][0]).toMatchObject({ key: 'pv:GUAYAS', label: 'la provincia de Guayas' });
+      expect(sent[1].message.text).toContain('Análisis de la situación');
+      expect(sent[1].message.text).toContain('La provincia de Guayas');
+      // Lo que escribe la IA va escapado: Telegram rechaza HTML mal formado.
+      expect(sent[1].message.text).toContain('Se espera lluvia &lt;fuerte&gt;.');
+      expect(sent[1].message.text).toContain('<b>Qué significa:</b> Significa.');
+    });
+
+    it('/analisis con varias zonas arma un ámbito propio, y si falla lo dice', async () => {
+      await addChat('7', { zones: [7], provinces: [], cantons: [{ code: '0901', name: 'Guayaquil', province: 'Guayas' }] });
+      analyze.mockRejectedValueOnce(new Error('sin datos'));
+      await bot.handle(text('/analisis'));
+      await vi.waitFor(() => expect(sent).toHaveLength(2));
+      const scope = analyze.mock.calls[0][0] as { key: string; includes: (place: { cantonCode: string; province: string }) => boolean };
+      expect(scope.key).toBe('tg:7||0901');
+      expect(scope.includes({ cantonCode: '0701', province: 'El Oro' })).toBe(true);
+      expect(scope.includes({ cantonCode: '0901', province: 'Guayas' })).toBe(true);
+      expect(scope.includes({ cantonCode: '0902', province: 'Guayas' })).toBe(false);
+      expect(sent[1].message.text).toContain('No se pudo preparar el análisis');
+    });
+
+    it('sin riesgo vigente, /estado igual ofrece el análisis', async () => {
+      snapshot.flashFloods = [];
+      await addChat('7');
+      await bot.handle(text('/estado'));
+      expect(sent[0].message.buttons).toEqual([[{ label: '🧠 Analizar la situación actual', data: 'an' }]]);
+    });
+
+    it('quien no está registrado no puede pedir el análisis', async () => {
+      await bot.handle(tap('an'));
+      expect(analyze).not.toHaveBeenCalled();
+      expect(sent).toHaveLength(0);
+      expect(editMessage.mock.calls[0][2]).toContain('No estás registrado');
     });
 
     it('Más detalle respeta lo elegido', async () => {

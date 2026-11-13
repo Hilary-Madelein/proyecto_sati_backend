@@ -8,13 +8,15 @@ import { NATIONAL, scopeLabel } from './flood-alert-scope.js';
 import { PLANNING_ZONES } from './planning-zones.js';
 import { TelegramChatStore } from './flood-alert-stores.js';
 import { FloodAlertsService } from './flood-alerts.service.js';
+import { SituationAnalysisService } from '../situation-analysis/situation-analysis.service.js';
+import { ANALYSIS_FAILED, ANALYZE, ANALYZING, analysisMessage, chatSituationScope } from './situation-message.js';
 
 /** Pausa tras un error de red, y tras un 409 (otro proceso lee con el mismo token). */
 const ERROR_PAUSE_MS = 10_000;
 const CONFLICT_PAUSE_MS = 60_000;
 
 const ALERTS_COMMAND = 'Configurar alertas: todo el país, zonas, provincias o cantones';
-const HELP = `Comandos:\n/alertas: ${ALERTS_COMMAND.charAt(0).toLowerCase()}${ALERTS_COMMAND.slice(1)}\n/estado: zonas de riesgo vigentes\n/parar: dejar de recibir alertas`;
+const HELP = `Comandos:\n/alertas: ${ALERTS_COMMAND.charAt(0).toLowerCase()}${ALERTS_COMMAND.slice(1)}\n/estado: zonas de riesgo vigentes\n/analisis: análisis de la situación actual\n/parar: dejar de recibir alertas`;
 const CHOOSE = '¿Qué alertas quieres recibir? Puedes marcar varias zonas, provincias y cantones.';
 const NOT_REGISTERED = 'No estás registrado. Usa el enlace de invitación que recibiste.';
 
@@ -82,6 +84,7 @@ export class TelegramBotService implements OnApplicationBootstrap, OnApplication
     private readonly alerts: FloodAlertsService,
     private readonly catalog: CantonCatalog,
     private readonly config: AppConfigService,
+    private readonly situation: SituationAnalysisService,
   ) {}
 
   onApplicationBootstrap(): void {
@@ -90,6 +93,7 @@ export class TelegramBotService implements OnApplicationBootstrap, OnApplication
       .setCommands([
         { command: 'alertas', description: ALERTS_COMMAND },
         { command: 'estado', description: 'Zonas de riesgo vigentes' },
+        { command: 'analisis', description: 'Análisis de la situación actual' },
         { command: 'parar', description: 'Dejar de recibir alertas' },
       ])
       .catch((error: Error) => this.logger.warn(`No se pudieron publicar los comandos: ${error.message}`));
@@ -142,6 +146,9 @@ export class TelegramBotService implements OnApplicationBootstrap, OnApplication
         return this.status(chatId);
       case '/alertas':
         return this.menu(chatId);
+      case '/analisis':
+      case '/análisis':
+        return this.analyze(chatId);
       default:
         return this.telegram.send(chatId, { text: HELP });
     }
@@ -180,6 +187,23 @@ export class TelegramBotService implements OnApplicationBootstrap, OnApplication
     await this.telegram.send(chatId, await this.alerts.currentStatus(chat));
   }
 
+  /**
+   * Análisis de la situación de lo que eligió la persona. Tarda unos segundos: se
+   * avisa y se envía al terminar, sin frenar la lectura de los demás mensajes.
+   */
+  private async analyze(chatId: string): Promise<void> {
+    const chat = await this.chats.find(chatId);
+    if (!chat?.active) return this.telegram.send(chatId, { text: NOT_REGISTERED });
+    await this.telegram.send(chatId, { text: ANALYZING, silent: true });
+    void this.situation
+      .analyze(chatSituationScope(chat))
+      .then((analysis) => this.telegram.send(chatId, { text: analysisMessage(analysis), silent: true }))
+      .catch(async (error: Error) => {
+        this.logger.error(`No se pudo enviar el análisis al chat ${chatId}: ${error.message}`);
+        await this.telegram.send(chatId, { text: ANALYSIS_FAILED, silent: true }).catch(() => undefined);
+      });
+  }
+
   private async menu(chatId: string): Promise<void> {
     const chat = await this.chats.find(chatId);
     if (!chat?.active) return this.telegram.send(chatId, { text: NOT_REGISTERED });
@@ -196,6 +220,7 @@ export class TelegramBotService implements OnApplicationBootstrap, OnApplication
     if (!chat?.active) return this.telegram.editMessage(chatId, messageId, NOT_REGISTERED);
 
     const data = query.data;
+    if (data === ANALYZE) return this.analyze(chatId);
     const provinces = await this.catalog.provinces();
     const provinceAt = (prefix: string) => provinces[Number(data.slice(prefix.length))];
 

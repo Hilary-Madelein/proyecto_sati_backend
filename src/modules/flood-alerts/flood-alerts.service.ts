@@ -18,6 +18,7 @@ import { EXPLORE, type ExplorerData } from './flood-alert-explorer.js';
 import { filterToScope, type ChatScope } from './flood-alert-scope.js';
 import { FlashFloodIssueStore, TelegramChatStore } from './flood-alert-stores.js';
 import { improvedMessage, statusMessage, worsenedMessage, type AlertCanton } from './flood-alert-messages.js';
+import { ANALYZE_BUTTON } from './situation-message.js';
 
 const CHANNEL = 'telegram';
 /** Cada cuánto se revisa. Flood Hub tiene su propio caché de 30 minutos. */
@@ -28,8 +29,10 @@ const SEND_GAP_MS = 50;
 /** La lluvia acompaña a la alerta: si tarda más que esto, la alerta sale sin ella. */
 const RAIN_TIMEOUT_MS = 20_000;
 
-/** Botón de cada alerta para abrir el detalle por zona, provincia, cantón y parroquia. */
-const DETAIL_BUTTON = [[{ label: '🔎 Más detalle', data: EXPLORE }]];
+/** Botones de cada alerta: el detalle por zona, provincia, cantón y parroquia, y el análisis de la situación. */
+const DETAIL_BUTTON = [[{ label: '🔎 Más detalle', data: EXPLORE }], [ANALYZE_BUTTON]];
+/** Sin riesgo vigente no hay detalle que abrir, pero el análisis sí se puede pedir. */
+const ANALYZE_ONLY = [[ANALYZE_BUTTON]];
 
 interface RainSources {
   parishes: ParishAlert[];
@@ -105,7 +108,7 @@ export class FloodAlertsService implements OnApplicationBootstrap, OnApplication
     return this.withMapLink({
       text: statusMessage(cantons, latest?.validUntil ?? null, scope),
       silent: true,
-      ...(cantons.length > 0 && latest && { buttons: DETAIL_BUTTON }),
+      buttons: cantons.length > 0 && latest ? DETAIL_BUTTON : ANALYZE_ONLY,
     });
   }
 
@@ -160,7 +163,7 @@ export class FloodAlertsService implements OnApplicationBootstrap, OnApplication
       const lowered = filterToScope(chat, changes.lowered);
       const left = filterToScope(chat, changes.left);
       if (lowered.length === 0 && left.length === 0) return null;
-      return { text: improvedMessage({ lowered, left }, chat), silent: true };
+      return { text: improvedMessage({ lowered, left }, chat), silent: true, buttons: ANALYZE_ONLY };
     });
   }
 

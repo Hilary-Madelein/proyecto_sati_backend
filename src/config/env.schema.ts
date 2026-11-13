@@ -162,6 +162,21 @@ export const envSchema = z.object({
   /** API pública del INAMHI: estaciones con coordenadas y lluvia horaria de las últimas 12 h. */
   INAMHI_STATIONS_API_URL: z.url().default('https://apis.inamhi.gob.ec/api/v1'),
 
+  // ── Gemini: análisis de la situación redactado con IA ────────────────────
+  /** Clave de la API de Gemini (Google AI Studio). Solo backend. Vacío = el análisis sale con el texto de plantilla. */
+  GEMINI_API_KEY: z.string().optional().or(z.literal('').transform(() => undefined)),
+  /** Modelos en orden de preferencia: si uno está saturado o falla, se prueba el siguiente. */
+  GEMINI_MODELS: z
+    .string()
+    .default('gemini-3.5-flash,gemini-flash-lite-latest')
+    .transform((value) =>
+      value
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
+  GEMINI_API_URL: z.url().default('https://generativelanguage.googleapis.com/v1beta'),
+
   // ── Google Flood Hub ─────────────────────────────────────────────────────
   /** Clave de la API de Google Flood Forecasting. Solo backend: nunca en variables del frontend. */
   GOOGLE_FLOOD_API_KEY: z.string().optional().or(z.literal('').transform(() => undefined)),

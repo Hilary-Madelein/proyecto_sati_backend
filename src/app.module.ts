@@ -24,6 +24,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
 import { ObservedRainModule } from './modules/observed-rain/observed-rain.module.js';
 import { RainForecastModule } from './modules/rain-forecast/rain-forecast.module.js';
 import { RiskLayersModule } from './modules/risk-layers/risk-layers.module.js';
+import { SituationAnalysisModule } from './modules/situation-analysis/situation-analysis.module.js';
 import { SeaTemperatureModule } from './modules/sea-temperature/sea-temperature.module.js';
 import { WeatherStationsModule } from './modules/weather-stations/weather-stations.module.js';
 import { StorageModule } from './storage/storage.module.js';
@@ -49,6 +50,7 @@ import { StorageModule } from './storage/storage.module.js';
     WeatherStationsModule,
     RiskLayersModule,
     CantonAnalysisModule,
+    SituationAnalysisModule,
     NotificationsModule,
     FloodAlertsModule,
     AdminAuthModule,
