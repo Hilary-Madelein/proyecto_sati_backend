@@ -16,6 +16,7 @@ import {
   inventedNumbers,
   isAnswerAcceptable,
   isTooLong,
+  plainText,
   questionPrompt,
   situationPrompt,
   templateText,
@@ -112,7 +113,7 @@ export class SituationAnalysisService {
         prompt: questionPrompt(facts, analysis, text),
         schema: ANSWER_SCHEMA,
       });
-      const answer = value.answer.trim();
+      const answer = plainText(value.answer);
       if (isAnswerAcceptable(answer, facts, text)) return { answer, note: AI_NOTE };
       this.logger.warn(`Respuesta sobre ${facts.lugar} descartada: cifras que no están en los datos o demasiado larga`);
     } catch (error) {
@@ -197,10 +198,10 @@ export class SituationAnalysisService {
         schema: SITUATION_SCHEMA,
       });
       const text: SituationText = {
-        headline: value.headline.trim(),
-        observed: value.observed.trim(),
-        expected: value.expected.trim(),
-        meaning: value.meaning.trim(),
+        headline: plainText(value.headline),
+        observed: plainText(value.observed),
+        expected: plainText(value.expected),
+        meaning: plainText(value.meaning),
       };
       const invented = inventedNumbers(text, facts);
       if (invented.length > 0) {

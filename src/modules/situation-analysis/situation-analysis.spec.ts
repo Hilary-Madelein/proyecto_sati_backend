@@ -9,7 +9,7 @@ import type { FlashFloodArea } from '../flood-hub/flood-hub-source.js';
 import type { WeatherStationsService, WeatherStationsSnapshot } from '../weather-stations/weather-stations.service.js';
 import { NATIONAL_SCOPE, buildFacts, provinceScope, type SituationInputs } from './situation-facts.js';
 import { SituationAnalysisService } from './situation-analysis.service.js';
-import { inventedNumbers, numbersIn, templateText, type SituationText } from './situation-text.js';
+import { inventedNumbers, numbersIn, plainText, templateText, type SituationText } from './situation-text.js';
 
 const PARISHES: ParishPoint[] = [
   { code: '130301', name: 'Chone', cantonCode: '1303', canton: 'Chone', province: 'Manabí', kind: 'cabecera', lat: -0.7, lng: -80.1 },
@@ -255,5 +255,14 @@ describe('servicio del análisis de la situación', () => {
 
   it('rechaza una provincia que no existe', async () => {
     await expect(service.forProvince('Atlántida')).rejects.toThrow('No se reconoce la provincia');
+  });
+});
+
+describe('plainText', () => {
+  it('convierte a letras las tildes que la IA escribe como entidades HTML', () => {
+    expect(plainText('Seg&uacute;n el pron&oacute;stico, R&iacute;o Toachi &#8212; Ts&#225;chilas, &Ntilde;')).toBe('Según el pronóstico, Río Toachi — Tsáchilas, Ñ');
+  });
+  it('deja igual el texto normal y las entidades que no conoce', () => {
+    expect(plainText('  Lluvia de 53 mm &raro; ok ')).toBe('Lluvia de 53 mm &raro; ok');
   });
 });
