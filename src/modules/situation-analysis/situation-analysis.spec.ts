@@ -340,3 +340,14 @@ describe('plainText', () => {
     expect(plainText('  Lluvia de 53 mm &raro; ok ')).toBe('Lluvia de 53 mm &raro; ok');
   });
 });
+
+describe('withAccents', () => {
+  it('pone las tildes a las palabras frecuentes que la IA escribe sin ellas', () => {
+    expect(plainText('Segun el pronostico del INAMHI, las lluvias mas altas en las proximas horas alcanzan 53 mm en la parroquia Rio Toachi')).toBe(
+      'Según el pronóstico del INAMHI, las lluvias más altas en las próximas horas alcanzan 53 mm en la parroquia Río Toachi',
+    );
+  });
+  it('no toca palabras ya escritas bien ni las que existen sin tilde', () => {
+    expect(plainText('Esta lluvia, este río y la categoría están bien.')).toBe('Esta lluvia, este río y la categoría están bien.');
+  });
+});
