@@ -7,7 +7,7 @@ import type { EventsService } from '../events/events.service.js';
 import type { FloodHubService } from '../flood-hub/flood-hub.service.js';
 import type { FlashFloodArea } from '../flood-hub/flood-hub-source.js';
 import type { WeatherStationsService, WeatherStationsSnapshot } from '../weather-stations/weather-stations.service.js';
-import { NATIONAL_SCOPE, buildFacts, provinceScope, type SituationInputs } from './situation-facts.js';
+import { NATIONAL_SCOPE, buildFacts, provinceScope, provincesScope, type SituationInputs } from './situation-facts.js';
 import { SituationAnalysisService } from './situation-analysis.service.js';
 import { inventedNumbers, numbersIn, plainText, templateText, type SituationText } from './situation-text.js';
 
@@ -160,6 +160,19 @@ describe('datos del análisis de la situación', () => {
     });
     expect(facts.vulnerabilidadYPreparacion?.lectura).toBeUndefined();
     expect(facts.inundacionesReportadas?.total).toBe(2);
+    expect(facts.crecidasRepentinas?.cantones).toEqual(['Chone (Manabí)']);
+  });
+
+  it('de varias provincias toma lo de todas, en cualquier orden, y reparte por provincia', () => {
+    const scope = provincesScope(['Manabí', 'loja']);
+    expect(scope).toMatchObject({ label: 'las provincias de loja y Manabí', severalProvinces: true });
+    expect(provincesScope(['Loja', 'MANABI']).key).toBe(scope.key);
+    expect(scope.includes({ cantonCode: 'x', province: 'LOJA' })).toBe(true);
+    expect(scope.includes({ cantonCode: 'x', province: 'Guayas' })).toBe(false);
+    // Una sola es la provincia (comparte la caché con el pedido de esa provincia).
+    expect(provincesScope(['Manabí'])).toMatchObject({ key: provinceScope('Manabí').key, severalProvinces: false });
+    const facts = buildFacts(scope, inputs);
+    expect(facts.lugar).toBe('las provincias de loja y Manabí');
     expect(facts.crecidasRepentinas?.cantones).toEqual(['Chone (Manabí)']);
   });
 
@@ -329,6 +342,14 @@ describe('servicio del análisis de la situación', () => {
 
   it('rechaza una provincia que no existe', async () => {
     await expect(service.forProvince('Atlántida')).rejects.toThrow('No se reconoce la provincia');
+    await expect(service.forProvince('Manabí,Atlántida')).rejects.toThrow('No se reconoce la provincia "Atlántida"');
+  });
+
+  it('analiza varias provincias juntas con su nombre oficial, y comparte el resultado sin importar el orden', async () => {
+    const first = await service.forProvince('manabi, guayas');
+    expect(first.place).toBe('las provincias de Guayas y Manabí');
+    await service.forProvince('Guayas,Manabí');
+    expect(generateJson).toHaveBeenCalledTimes(1);
   });
 });
 

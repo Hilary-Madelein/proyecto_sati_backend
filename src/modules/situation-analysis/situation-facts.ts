@@ -46,6 +46,24 @@ export function provinceScope(province: string): SituationScope {
   };
 }
 
+/** "Manabí", "Manabí y Loja", "Manabí, Guayas y Loja". */
+const joinNames = (names: readonly string[]) => (names.length <= 1 ? (names[0] ?? '') : `${names.slice(0, -1).join(', ')} y ${names.at(-1)}`);
+
+/**
+ * Varias provincias juntas (las que se eligieron en el visor). Con una sola es la de
+ * esa provincia (comparte la caché). El orden no importa: la clave va ordenada.
+ */
+export function provincesScope(provinces: readonly string[]): SituationScope {
+  const names = [...new Map(provinces.map((name) => [normalizeText(name), name])).entries()].sort(([a], [b]) => a.localeCompare(b));
+  if (names.length === 1) return provinceScope(names[0][1]);
+  return {
+    key: `pvs:${names.map(([key]) => key).join(',')}`,
+    label: `las provincias de ${joinNames(names.map(([, name]) => name))}`,
+    severalProvinces: true,
+    includes: (place) => names.some(([, name]) => sameProvince(place.province, name)),
+  };
+}
+
 export interface SituationInputs {
   now: Date;
   parishPoints: readonly ParishPoint[];

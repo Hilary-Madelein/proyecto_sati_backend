@@ -6,7 +6,7 @@ import { FLOOD_HAZARD_TYPES } from '../events/domain/hazard-type.js';
 import { EventsService } from '../events/events.service.js';
 import { FloodHubService } from '../flood-hub/flood-hub.service.js';
 import { WeatherStationsService } from '../weather-stations/weather-stations.service.js';
-import { EVENT_HOURS, NATIONAL_SCOPE, buildFacts, provinceScope, sameProvince, type SituationFacts, type SituationScope } from './situation-facts.js';
+import { EVENT_HOURS, NATIONAL_SCOPE, buildFacts, provincesScope, sameProvince, type SituationFacts, type SituationScope } from './situation-facts.js';
 import {
   ANSWER_SCHEMA,
   QUESTION_MAX_LENGTH,
@@ -31,6 +31,8 @@ const TEMPLATE_TTL_MS = 2 * MINUTE_MS;
 const MAX_ENTRIES = 300;
 /** Tope de consultas a Gemini por hora, por si alguien pide análisis sin parar: pasado el tope, sale la plantilla. */
 const MAX_AI_CALLS_PER_HOUR = 90;
+/** Provincias que se pueden pedir juntas (las 24 del país): más es un pedido mal armado. */
+const MAX_PROVINCES = 24;
 const HOUR_MS = 60 * MINUTE_MS;
 
 const SOURCES = 'INAMHI, SNGR, GEOGLOWS y Google Flood Hub';
@@ -90,7 +92,7 @@ export class SituationAnalysisService {
     private readonly gemini: GeminiClient,
   ) {}
 
-  /** Del país, o de una provincia por su nombre (con o sin tildes y mayúsculas). */
+  /** Del país, o de una o varias provincias por su nombre (con o sin tildes y mayúsculas; varias, separadas por comas). */
   async forProvince(province?: string): Promise<SituationAnalysis> {
     return this.analyze(await this.scopeOf(province));
   }
@@ -123,10 +125,16 @@ export class SituationAnalysisService {
   }
 
   private async scopeOf(province?: string): Promise<SituationScope> {
-    if (!province?.trim()) return NATIONAL_SCOPE;
-    const name = [...new Set((await this.parishPoints()).map((parish) => parish.province))].find((item) => sameProvince(item, province));
-    if (!name) throw new NotFoundException(`No se reconoce la provincia "${province}"`);
-    return provinceScope(name);
+    const asked = (province ?? '').split(',').map((name) => name.trim()).filter(Boolean);
+    if (asked.length === 0) return NATIONAL_SCOPE;
+    if (asked.length > MAX_PROVINCES) throw new BadRequestException(`Se pueden analizar hasta ${MAX_PROVINCES} provincias juntas`);
+    const known = [...new Set((await this.parishPoints()).map((parish) => parish.province))];
+    const names = asked.map((name) => {
+      const found = known.find((item) => sameProvince(item, name));
+      if (!found) throw new NotFoundException(`No se reconoce la provincia "${name}"`);
+      return found;
+    });
+    return provincesScope(names);
   }
 
   /** El análisis de un ámbito; los pedidos del mismo lugar comparten el resultado mientras dure. */
