@@ -70,6 +70,10 @@ export interface SituationFacts {
     parroquiasEnAlertaMuyAlta: number;
     parroquiasEnAlertaAlta: number;
     parroquiasEnAlertaModerada: number;
+    parroquiasEnAlertaAltaOMuyAlta: number;
+    /** Qué tan extendida está la alerta alta o muy alta entre las parroquias del lugar. */
+    extensionDeLaAlerta: 'ninguna' | 'puntual' | 'en varias parroquias' | 'extendida';
+    categoriaDeLluviaMasAlta: string;
     lugaresConMasLluviaEsperada: Array<{
       parroquia: string;
       canton: string;
@@ -77,6 +81,12 @@ export interface SituationFacts {
       lluviaMm: number;
       enLasProximasHoras: number;
       categoriaDeLluvia: string;
+      /** Lluvia desde la que empieza esa categoría en ese mismo periodo. */
+      umbralDeEsaCategoriaMm: number;
+      comparacionConElUmbral: 'apenas sobre el umbral' | 'sobre el umbral' | 'el doble del umbral o más';
+      /** El acumulado del día completo en el mismo lugar, para dar la proporción. */
+      lluviaEn24HorasMm: number | null;
+      categoriaEn24Horas: string | null;
       alerta: string;
     }>;
     provinciasConMasParroquiasEnAlertaAltaOMuyAlta?: Array<{ provincia: string; parroquias: number }>;
@@ -87,6 +97,8 @@ export interface SituationFacts {
     fuente: 'estaciones del INAMHI';
     enLasUltimasHoras: number;
     estacionesConDatos: number;
+    /** Si ninguna estación midió 1 mm o más: se dice así, sin lista. */
+    huboLluviaApreciable: boolean;
     estacionesConMasLluvia: Array<{ estacion: string; ubicacion: string; lluviaMm: number; categoriaDeLluvia: string }>;
   } | null;
   crecidasRepentinas: {
@@ -188,9 +200,16 @@ function forecastFacts(scope: SituationScope, analysis: CantonAnalysisSnapshot |
     parroquiasEnAlertaMuyAlta: count('red'),
     parroquiasEnAlertaAlta: count('orange'),
     parroquiasEnAlertaModerada: count('yellow'),
+    parroquiasEnAlertaAltaOMuyAlta: high.length,
+    extensionDeLaAlerta: spreadOf(high.length, parishes.length),
+    categoriaDeLluviaMasAlta: worst.label.toLowerCase(),
     lugaresConMasLluviaEsperada: shown.flatMap((parish) => {
       const mm = decisiveMm(parish);
       if (mm === null || !parish.decidedBy) return [];
+      const band = RAIN_BANDS.find((item) => item.category === parish.category) ?? RAIN_BANDS[0];
+      const threshold = band[`from${parish.decidedBy}`];
+      const day = parish.forecast.mm24h;
+      const dayCategory = RAIN_BANDS.find((item) => item.category === parish.forecast.category24h);
       return [
         {
           parroquia: parish.name,
@@ -199,6 +218,10 @@ function forecastFacts(scope: SituationScope, analysis: CantonAnalysisSnapshot |
           lluviaMm: mm,
           enLasProximasHoras: Number.parseInt(parish.decidedBy, 10),
           categoriaDeLluvia: parish.categoryLabel.toLowerCase(),
+          umbralDeEsaCategoriaMm: threshold,
+          comparacionConElUmbral: mm >= threshold * 2 ? 'el doble del umbral o más' : mm >= threshold * 1.3 ? 'sobre el umbral' : 'apenas sobre el umbral',
+          lluviaEn24HorasMm: day === null ? null : Math.round(day),
+          categoriaEn24Horas: dayCategory ? dayCategory.label.toLowerCase() : null,
           alerta: LEVEL_LABELS[parish.semaphore],
         },
       ];
@@ -212,6 +235,14 @@ function forecastFacts(scope: SituationScope, analysis: CantonAnalysisSnapshot |
       }),
     consecuenciasPosiblesSegunLaCategoriaMasAlta: worst.consequences,
   };
+}
+
+/** Alerta alta o muy alta en hasta el 5 % de las parroquias, o en 1 o 2 si no llegan al 30 %, es puntual; desde el 30 %, extendida. */
+function spreadOf(high: number, total: number): NonNullable<SituationFacts['pronosticoDeLluvia']>['extensionDeLaAlerta'] {
+  if (high === 0 || total === 0) return 'ninguna';
+  const share = high / total;
+  if (share >= 0.3) return 'extendida';
+  return high <= 2 || share <= 0.05 ? 'puntual' : 'en varias parroquias';
 }
 
 /** Lluvia de la ventana que decidió el nivel, sin decimales (a esta escala serían falsa precisión). */
@@ -244,6 +275,7 @@ function measuredFacts(
     fuente: 'estaciones del INAMHI',
     enLasUltimasHoras: stations.windowHours,
     estacionesConDatos: reporting.length,
+    huboLluviaApreciable: reporting.some(({ mm }) => mm >= 1),
     estacionesConMasLluvia: reporting
       .filter(({ mm }) => mm >= 1)
       .sort((a, b) => b.mm - a.mm)

@@ -32,7 +32,7 @@ const parish = (point: ParishPoint, semaphore: string, categoryLabel: string, mm
   semaphore,
   category: categoryLabel.toLowerCase(),
   categoryLabel,
-  forecast: { mm3h: 12.4, mm6h: null, mm12h: null, mm24h },
+  forecast: { mm3h: 12.4, mm6h: null, mm12h: null, mm24h, category24h: categoryLabel.toLowerCase() },
   decidedBy,
 });
 
@@ -103,6 +103,10 @@ describe('datos del análisis de la situación', () => {
       lluviaMm: 119,
       enLasProximasHoras: 24,
       categoriaDeLluvia: 'torrencial',
+      umbralDeEsaCategoriaMm: 100,
+      comparacionConElUmbral: 'apenas sobre el umbral',
+      lluviaEn24HorasMm: 119,
+      categoriaEn24Horas: 'torrencial',
       alerta: 'muy alta',
     });
     expect(facts.pronosticoDeLluvia?.consecuenciasPosiblesSegunLaCategoriaMasAlta).toContain('desbordamientos');
@@ -159,13 +163,34 @@ describe('control de cifras', () => {
 describe('texto de plantilla', () => {
   it('arma las cuatro partes con lo que hay', () => {
     const text = templateText(buildFacts(provinceScope('Manabí'), inputs));
-    expect(text.headline).toBe('Se espera lluvia fuerte en la provincia de Manabí: 2 parroquias en alerta alta o muy alta en las próximas 24 horas.');
+    expect(text.headline).toBe('Se prevé lluvia torrencial en la provincia de Manabí: 1 en alerta muy alta y 1 en alerta alta, de 2 parroquias con pronóstico.');
     expect(text.observed).toContain('midió 85 mm en las últimas 24 horas, lluvia de categoría intensa');
     expect(text.observed).toContain('1 inundación en las últimas 24 horas, 1 con daños');
-    expect(text.expected).toContain('Chone (cantón Chone): 119 mm en las próximas 24 horas, categoría torrencial');
+    expect(text.expected).toContain('Chone (cantón Chone): 119 mm en las próximas 24 horas, que apenas supera el umbral de lluvia torrencial para ese periodo (100 mm)');
     expect(text.expected).toContain('crecida repentina en 1 cantón (no confirmado por la SNGR)');
     expect(text.expected).toContain('7 tramos de río');
-    expect(text.meaning).toContain('Sigue los avisos oficiales');
+    expect(text.meaning).toBe('En las parroquias en alerta puede haber inundaciones potencialmente severas, desbordamientos y afectaciones a infraestructura. Sigue los avisos oficiales de la SNGR y del INAMHI.');
+  });
+
+  it('una lluvia corta en una sola parroquia se cuenta como localizada, con su periodo, su umbral y el total del día', () => {
+    const point = (index: number): ParishPoint => ({ ...PARISHES[0], code: `1101${index}`, name: `Parroquia ${index}`, cantonCode: '1109', canton: 'Chaguarpamba', province: 'Loja' });
+    const calm = Array.from({ length: 30 }, (_, index) => ({ ...parish(point(index), 'green', 'Ligera', 2), forecast: { mm3h: 0.5, mm6h: 1, mm12h: 1.5, mm24h: 2, category24h: 'ligera' } }));
+    const burst = { ...parish({ ...point(99), name: 'El Rosario' }, 'orange', 'Intensa', 14.2, '3h'), forecast: { mm3h: 12.4, mm6h: 13, mm12h: 13.5, mm24h: 14.2, category24h: 'moderada' } };
+    const facts = buildFacts(provinceScope('Loja'), { ...inputs, analysis: { ...analysis, parishes: [burst, ...calm] } as unknown as CantonAnalysisSnapshot });
+    expect(facts.pronosticoDeLluvia).toMatchObject({ extensionDeLaAlerta: 'puntual', categoriaDeLluviaMasAlta: 'intensa', parroquiasConPronostico: 31 });
+    expect(facts.pronosticoDeLluvia?.lugaresConMasLluviaEsperada[0]).toMatchObject({
+      lluviaMm: 12,
+      enLasProximasHoras: 3,
+      umbralDeEsaCategoriaMm: 10,
+      comparacionConElUmbral: 'apenas sobre el umbral',
+      lluviaEn24HorasMm: 14,
+      categoriaEn24Horas: 'moderada',
+    });
+    const text = templateText(facts);
+    expect(text.headline).toBe('Se prevé lluvia intensa localizada en la provincia de Loja: 1 en alerta alta, de 31 parroquias con pronóstico.');
+    expect(text.expected).toContain('12 mm en las próximas 3 horas, que apenas supera el umbral de lluvia intensa para ese periodo (10 mm)');
+    expect(text.expected).toContain('En 24 horas se esperan allí 14 mm, categoría moderada.');
+    expect(text.meaning).toContain('Es una lluvia localizada, no una situación general del lugar. En esas parroquias puede haber inundaciones urbanas');
   });
 
   it('sin datos no afirma nada', () => {

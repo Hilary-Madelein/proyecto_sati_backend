@@ -40,10 +40,11 @@ Reglas obligatorias:
 5. Las crecidas repentinas son un pronóstico de Google no confirmado por la SNGR: dilo así si las mencionas.
 6. Los "tramos de río" son segmentos de un modelo, no ríos distintos: di "tramos de río".
 7. En "meaning" explica qué puede pasar usando el campo de consecuencias posibles, sin exagerar y sin dar órdenes de evacuación ni instrucciones que le corresponden a la SNGR. Si no hay alertas, dilo con calma, sin afirmar que no existe ningún riesgo.
-8. Si un dato viene como null o aparece en "datosNoDisponibles", no lo supongas: omítelo o di que no está disponible ahora.
+8. Si "huboLluviaApreciable" es false, di que las estaciones no midieron lluvia apreciable en ese periodo. Si un dato viene como null o aparece en "datosNoDisponibles", no lo supongas: omítelo o di que no está disponible ahora.
 9. Si una cantidad es 0, puedes decir que no hay; no menciones listas vacías.
 10. Tono sereno y directo. Sin saludos, sin emojis, sin signos de exclamación, sin formato (ni asteriscos ni viñetas). Ortografía correcta, con tildes y eñes. Escribe las cifras con números y la lluvia en "mm".
-11. Brevedad: "headline" es una sola frase de hasta 22 palabras que dice lo más importante que pasa (no un título genérico como "Situación de lluvias"); cada una de las otras partes tiene como máximo 2 frases y 40 palabras. Nombra como máximo 2 lugares por parte: los de mayor lluvia o nivel. Si el análisis es de una sola provincia, no repitas su nombre junto a cada lugar.`;
+11. Brevedad: "headline" es una sola frase de hasta 22 palabras que dice lo más importante que pasa (no un título genérico como "Situación de lluvias"); cada una de las otras partes tiene como máximo 2 frases y 40 palabras. Nombra como máximo 2 lugares por parte: los de mayor lluvia o nivel. Si el análisis es de una sola provincia, no repitas su nombre junto a cada lugar.
+12. Proporción: no exageres ni minimices. La lluvia siempre va con su periodo ("12 mm en 3 horas", nunca los mm solos). Solo para el lugar principal (el primero de la lista) agrega su umbral y el total del día, en una frase corta, por ejemplo: "12 mm en 3 horas, apenas sobre el umbral de lluvia intensa (10 mm); en 24 horas, 26 mm". En el titular di cuántas parroquias están en alerta de cuántas tienen pronóstico. Si "extensionDeLaAlerta" es "puntual", el titular debe decir que es una lluvia localizada, no una situación de toda la provincia o del país, y en "meaning" las consecuencias valen solo para esas parroquias. En "meaning" escribe una frase completa ("En esas parroquias puede haber…"), no una lista suelta.`;
 
 /** Palabras del análisis completo a partir de las cuales se descarta por largo (las reglas piden unas 140 como mucho). */
 const MAX_WORDS = 190;
@@ -120,17 +121,21 @@ export function inventedNumbers(text: SituationText, facts: SituationFacts): num
 /* ── Texto de plantilla (respaldo sin IA) ──────────────────────────────────── */
 
 const count = (value: number, one: string, many: string) => `${value} ${value === 1 ? one : many}`;
-const cap = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 
 /** El mismo análisis armado con frases fijas: sale cuando Gemini no responde o inventa una cifra. */
 export function templateText(facts: SituationFacts): SituationText {
   const { pronosticoDeLluvia: forecast, lluviaMedida: measured, crecidasRepentinas: flash, rios: rivers, inundacionesReportadas: events } = facts;
   const high = forecast ? forecast.parroquiasEnAlertaMuyAlta + forecast.parroquiasEnAlertaAlta : 0;
+  const local = forecast?.extensionDeLaAlerta === 'puntual';
 
   let headline: string;
   if (!forecast) headline = `No se pudo leer el pronóstico de lluvia de ${facts.lugar} en este momento.`;
   else if (high > 0) {
-    headline = `Se espera lluvia fuerte en ${facts.lugar}: ${count(high, 'parroquia', 'parroquias')} en alerta alta o muy alta en las próximas 24 horas.`;
+    const levels = [
+      ...(forecast.parroquiasEnAlertaMuyAlta > 0 ? [`${forecast.parroquiasEnAlertaMuyAlta} en alerta muy alta`] : []),
+      ...(forecast.parroquiasEnAlertaAlta > 0 ? [`${forecast.parroquiasEnAlertaAlta} en alerta alta`] : []),
+    ].join(' y ');
+    headline = `Se prevé lluvia ${forecast.categoriaDeLluviaMasAlta}${local ? ' localizada' : ''} en ${facts.lugar}: ${levels}, de ${count(forecast.parroquiasConPronostico, 'parroquia', 'parroquias')} con pronóstico.`;
   } else if (forecast.parroquiasEnAlertaModerada > 0) {
     headline = `Se espera lluvia moderada en ${facts.lugar}, sin parroquias en alerta alta para las próximas 24 horas.`;
   } else headline = `No se esperan lluvias importantes en ${facts.lugar} en las próximas 24 horas.`;
@@ -155,7 +160,14 @@ export function templateText(facts: SituationFacts): SituationText {
   const top = forecast?.lugaresConMasLluviaEsperada[0];
   if (top) {
     expected.push(
-      `La mayor lluvia se prevé en ${top.parroquia} (cantón ${top.canton}): ${top.lluviaMm} mm en las próximas ${top.enLasProximasHoras} horas, categoría ${top.categoriaDeLluvia}, según el pronóstico del INAMHI.`,
+      `La mayor lluvia se prevé en ${top.parroquia} (cantón ${top.canton}): ${top.lluviaMm} mm en las próximas ${top.enLasProximasHoras} horas, que ${
+        top.comparacionConElUmbral === 'sobre el umbral' ? 'supera' : top.comparacionConElUmbral === 'apenas sobre el umbral' ? 'apenas supera' : 'duplica o más'
+      } el umbral de lluvia ${top.categoriaDeLluvia} para ese periodo (${top.umbralDeEsaCategoriaMm} mm), según el pronóstico del INAMHI.`,
+    );
+  }
+  if (top && top.enLasProximasHoras < 24 && top.lluviaEn24HorasMm !== null && top.categoriaEn24Horas) {
+    expected.push(
+      `En 24 horas se esperan allí ${top.lluviaEn24HorasMm} mm, categoría ${top.categoriaEn24Horas}.`,
     );
   }
   const flashCantons = flash ? flash.cantonesMuyProbable + flash.cantonesProbable : 0;
@@ -167,9 +179,10 @@ export function templateText(facts: SituationFacts): SituationText {
   }
   if (expected.length === 0) expected.push(forecast ? 'No hay pronósticos de lluvia fuerte ni de crecidas para las próximas 24 horas.' : 'El pronóstico no está disponible ahora.');
 
+  const consequences = forecast ? forecast.consecuenciasPosiblesSegunLaCategoriaMasAlta.charAt(0).toLowerCase() + forecast.consecuenciasPosiblesSegunLaCategoriaMasAlta.slice(1) : '';
   const meaning =
     forecast && (high > 0 || forecast.parroquiasEnAlertaModerada > 0)
-      ? `${cap(forecast.consecuenciasPosiblesSegunLaCategoriaMasAlta)} Sigue los avisos oficiales de la SNGR y del INAMHI.`
+      ? `${local ? 'Es una lluvia localizada, no una situación general del lugar. En esas parroquias puede haber' : 'En las parroquias en alerta puede haber'} ${consequences} Sigue los avisos oficiales de la SNGR y del INAMHI.`
       : 'Por ahora no se prevén afectaciones por lluvia nueva; la situación puede cambiar con el siguiente pronóstico. Sigue los avisos oficiales de la SNGR y del INAMHI.';
 
   return { headline, observed: observed.join(' '), expected: expected.join(' '), meaning };
