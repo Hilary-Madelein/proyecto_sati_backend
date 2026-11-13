@@ -201,6 +201,7 @@ export class SituationAnalysisService {
         observed: value.observed.trim(),
         expected: value.expected.trim(),
         meaning: value.meaning.trim(),
+        vulnerability: value.vulnerability.trim(),
       };
       const invented = inventedNumbers(text, facts);
       if (invented.length > 0) {

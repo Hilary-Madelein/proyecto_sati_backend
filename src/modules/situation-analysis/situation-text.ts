@@ -1,7 +1,7 @@
 import type { GeminiSchema } from '../../integrations/gemini/gemini.client.js';
 import type { SituationFacts } from './situation-facts.js';
 
-/** El análisis en cuatro partes: así el visor y Telegram le ponen cada uno sus títulos. */
+/** El análisis en cinco partes: así el visor y Telegram le ponen cada uno sus títulos. */
 export interface SituationText {
   /** La conclusión, en una frase. */
   headline: string;
@@ -11,9 +11,11 @@ export interface SituationText {
   expected: string;
   /** Qué significa en la práctica. */
   meaning: string;
+  /** Qué tan vulnerable es el lugar, según las capas de exposición y preparación. */
+  vulnerability: string;
 }
 
-export const TEXT_FIELDS = ['headline', 'observed', 'expected', 'meaning'] as const;
+export const TEXT_FIELDS = ['headline', 'observed', 'expected', 'meaning', 'vulnerability'] as const;
 
 export const SITUATION_SCHEMA: GeminiSchema = {
   type: 'OBJECT',
@@ -21,7 +23,8 @@ export const SITUATION_SCHEMA: GeminiSchema = {
     headline: { type: 'STRING', description: 'La conclusión en una sola frase: qué pasa y dónde.' },
     observed: { type: 'STRING', description: 'Lo ya medido y reportado: lluvia de las estaciones e inundaciones de la SNGR. Una o dos frases.' },
     expected: { type: 'STRING', description: 'Lo que se espera: pronóstico de lluvia, crecidas repentinas y ríos. Una o dos frases.' },
-    meaning: { type: 'STRING', description: 'Qué significa en la práctica para la gente del lugar. Una o dos frases.' },
+    meaning: { type: 'STRING', description: 'Qué significa la alerta en el lugar, con las señales que coinciden y lo expuesto en los cantones en alerta. Hasta tres frases.' },
+    vulnerability: { type: 'STRING', description: 'Vulnerabilidad del lugar según las capas de exposición y preparación. Hasta tres frases.' },
   },
   required: [...TEXT_FIELDS],
 };
@@ -39,15 +42,16 @@ Reglas obligatorias:
 4. Separa siempre lo ya medido o reportado de lo pronosticado. Un pronóstico "se espera" o "se prevé"; no lo des como un hecho.
 5. Las crecidas repentinas son un pronóstico de Google no confirmado por la SNGR: dilo así si las mencionas.
 6. Los "tramos de río" son segmentos de un modelo, no ríos distintos: di "tramos de río".
-7. En "meaning" explica qué puede pasar usando el campo de consecuencias posibles, sin exagerar y sin dar órdenes de evacuación ni instrucciones que le corresponden a la SNGR. Si no hay alertas, dilo con calma, sin afirmar que no existe ningún riesgo.
+7. "meaning" es el análisis, no una frase general: di qué significa la alerta en el lugar con los datos de "cantonesConParroquiasEnAlerta". Nombra el cantón principal y di si la alerta es una señal aislada (solo el pronóstico de lluvia, sin lluvia previa, ríos en alerta ni inundaciones recientes) o si está reforzada, citando las señales de "senialesQueCoinciden" con sus cifras. Luego di qué está expuesto ahí ("expuesto") y con qué se cuenta ("recursos"), solo si esas listas traen algo, y termina con lo que puede pasar según el campo de consecuencias posibles. Una señal aislada pide atención, no alarma; varias señales juntas hacen más probable que haya afectaciones: dilo así. Hasta 3 frases y 70 palabras. Sin exagerar y sin dar órdenes de evacuación ni instrucciones que le corresponden a la SNGR. Si no hay alertas, dilo con calma, sin afirmar que no existe ningún riesgo.
 8. Si "huboLluviaApreciable" es false, di que las estaciones no midieron lluvia apreciable en ese periodo. Si un dato viene como null o aparece en "datosNoDisponibles", no lo supongas: omítelo o di que no está disponible ahora.
 9. Si una cantidad es 0, puedes decir que no hay; no menciones listas vacías.
 10. Tono sereno y directo. Sin saludos, sin emojis, sin signos de exclamación, sin formato (ni asteriscos ni viñetas). Ortografía correcta, con tildes y eñes. Escribe las cifras con números y la lluvia en "mm".
-11. Brevedad: "headline" es una sola frase de hasta 22 palabras que dice lo más importante que pasa (no un título genérico como "Situación de lluvias"); cada una de las otras partes tiene como máximo 2 frases y 40 palabras. Nombra como máximo 2 lugares por parte: los de mayor lluvia o nivel. Si el análisis es de una sola provincia, no repitas su nombre junto a cada lugar.
-12. Proporción: no exageres ni minimices. La lluvia siempre va con su periodo ("12 mm en 3 horas", nunca los mm solos). Solo para el lugar principal (el primero de la lista) agrega su umbral y el total del día, en una frase corta, por ejemplo: "12 mm en 3 horas, apenas sobre el umbral de lluvia intensa (10 mm); en 24 horas, 26 mm". En el titular di cuántas parroquias están en alerta de cuántas tienen pronóstico. Si "extensionDeLaAlerta" es "puntual", el titular debe decir que es una lluvia localizada, no una situación de toda la provincia o del país, y en "meaning" las consecuencias valen solo para esas parroquias. En "meaning" escribe una frase completa ("En esas parroquias puede haber…"), no una lista suelta.`;
+11. Brevedad: "headline" es una sola frase de hasta 22 palabras que dice lo más importante que pasa (no un título genérico como "Situación de lluvias"); "observed" y "expected" tienen como máximo 2 frases y 40 palabras cada una. Nombra como máximo 2 lugares por parte: los de mayor lluvia o nivel. Si el análisis es de una sola provincia, no repitas su nombre junto a cada lugar.
+12. Proporción: no exageres ni minimices. La lluvia siempre va con su periodo ("12 mm en 3 horas", nunca los mm solos). Solo para el lugar principal (el primero de la lista) agrega su umbral y el total del día, en una frase corta, por ejemplo: "12 mm en 3 horas, apenas sobre el umbral de lluvia intensa (10 mm); en 24 horas, 26 mm". En el titular di cuántas parroquias están en alerta de cuántas tienen pronóstico. Si "extensionDeLaAlerta" es "puntual", el titular debe decir que es una lluvia localizada, no una situación de toda la provincia o del país, y en "meaning" las consecuencias valen solo para esas parroquias. En "meaning" escribe frases completas, no una lista suelta.
+13. "vulnerability" analiza qué tan vulnerable es el lugar con "vulnerabilidadYPreparacion". Es una condición permanente del lugar, no parte del pronóstico: preséntala como contexto. Di lo más relevante que está expuesto (2 o 3 cifras, con lo que son), en qué cantones se concentra, y con qué se cuenta para responder (alojamientos, maquinaria). Si vienen "comparacionConLasDemasProvincias", "indiceDePreparacion" y "lectura", úsalos para decir cómo queda la provincia frente a las demás (explica que el puesto 1 es la que más tiene expuesto, y en el índice, la más preparada) y cierra con la lectura tal como viene. Si no vienen, no menciones ninguna comparación. No califiques la vulnerabilidad por tu cuenta. Hasta 3 frases y 75 palabras. Si el campo es null, di que esa información no está disponible ahora.`;
 
 /** Palabras del análisis completo a partir de las cuales se descarta por largo (las reglas piden unas 140 como mucho). */
-const MAX_WORDS = 190;
+const MAX_WORDS = 320;
 
 const words = (text: string) => text.split(/\s+/).filter(Boolean).length;
 
@@ -121,6 +125,7 @@ export function inventedNumbers(text: SituationText, facts: SituationFacts): num
 /* ── Texto de plantilla (respaldo sin IA) ──────────────────────────────────── */
 
 const count = (value: number, one: string, many: string) => `${value} ${value === 1 ? one : many}`;
+const cap = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 
 /** El mismo análisis armado con frases fijas: sale cuando Gemini no responde o inventa una cifra. */
 export function templateText(facts: SituationFacts): SituationText {
@@ -180,10 +185,59 @@ export function templateText(facts: SituationFacts): SituationText {
   if (expected.length === 0) expected.push(forecast ? 'No hay pronósticos de lluvia fuerte ni de crecidas para las próximas 24 horas.' : 'El pronóstico no está disponible ahora.');
 
   const consequences = forecast ? forecast.consecuenciasPosiblesSegunLaCategoriaMasAlta.charAt(0).toLowerCase() + forecast.consecuenciasPosiblesSegunLaCategoriaMasAlta.slice(1) : '';
-  const meaning =
-    forecast && (high > 0 || forecast.parroquiasEnAlertaModerada > 0)
-      ? `${local ? 'Es una lluvia localizada, no una situación general del lugar. En esas parroquias puede haber' : 'En las parroquias en alerta puede haber'} ${consequences} Sigue los avisos oficiales de la SNGR y del INAMHI.`
-      : 'Por ahora no se prevén afectaciones por lluvia nueva; la situación puede cambiar con el siguiente pronóstico. Sigue los avisos oficiales de la SNGR y del INAMHI.';
+  const list = (items: string[]) => (items.length > 1 ? `${items.slice(0, -1).join(', ')} y ${items.at(-1)}` : (items[0] ?? ''));
+  const main = facts.cantonesConParroquiasEnAlerta[0];
+  let meaning: string;
+  if (forecast && main) {
+    const parts = [
+      local ? 'Es una lluvia localizada, no una situación general del lugar.' : `El cantón con más parroquias en alerta es ${main.canton} (${main.parroquiasEnAlertaAltaOMuyAlta}).`,
+      main.senialesQueCoinciden.length === 0
+        ? `En ${main.canton} es una señal aislada: no hay lluvia previa importante, ríos en alerta ni inundaciones recientes que la refuercen, así que pide atención más que alarma.`
+        : `En ${main.canton} la alerta coincide con ${list(main.senialesQueCoinciden)}, lo que hace más probable que haya afectaciones.`,
+      ...(main.expuesto.length > 0 ? [`En ese cantón hay ${list(main.expuesto.slice(0, 3))}.`] : []),
+      `Puede haber ${consequences}`,
+      'Sigue los avisos oficiales de la SNGR y del INAMHI.',
+    ];
+    meaning = parts.join(' ');
+  } else if (forecast && forecast.parroquiasEnAlertaModerada > 0) {
+    meaning = `No hay parroquias en alerta alta. Donde la lluvia sea moderada puede haber ${consequences} Sigue los avisos oficiales de la SNGR y del INAMHI.`;
+  } else {
+    meaning =
+      'Por ahora no se prevén afectaciones por lluvia nueva; la situación puede cambiar con el siguiente pronóstico. Sigue los avisos oficiales de la SNGR y del INAMHI.';
+  }
 
-  return { headline, observed: observed.join(' '), expected: expected.join(' '), meaning };
+  const vulnerable = facts.vulnerabilidadYPreparacion;
+  let vulnerability = 'La información de exposición y preparación del lugar no está disponible ahora.';
+  if (vulnerable) {
+    const { expuesto, preparacion } = vulnerable;
+    const exposed = [
+      ...(expuesto.poblacionesPropensasAInundaciones > 0 ? [count(expuesto.poblacionesPropensasAInundaciones, 'población propensa a inundaciones', 'poblaciones propensas a inundaciones')] : []),
+      ...(expuesto.institucionesEducativasConSusceptibilidadAltaAInundacion > 0
+        ? [count(expuesto.institucionesEducativasConSusceptibilidadAltaAInundacion, 'institución educativa con susceptibilidad alta a inundación', 'instituciones educativas con susceptibilidad alta a inundación')]
+        : []),
+      ...(expuesto.centrosDeSaludSusceptiblesAInundacion > 0
+        ? [`${count(expuesto.centrosDeSaludSusceptiblesAInundacion, 'centro de salud susceptible', 'centros de salud susceptibles')} a inundación (de ${expuesto.centrosDeSalud})`]
+        : []),
+      ...(expuesto.puentesEnMalEstado > 0 ? [count(expuesto.puentesEnMalEstado, 'puente en mal estado', 'puentes en mal estado')] : []),
+    ];
+    const resources = [
+      ...(preparacion.alojamientosTemporales > 0 ? [count(preparacion.alojamientosTemporales, 'alojamiento temporal', 'alojamientos temporales')] : []),
+      ...(preparacion.equiposDeMaquinariaPesada > 0 ? [count(preparacion.equiposDeMaquinariaPesada, 'equipo de maquinaria pesada', 'equipos de maquinaria pesada')] : []),
+    ];
+    const place = cap(facts.lugar);
+    vulnerability = [
+      exposed.length > 0 ? `${place} tiene ${list(exposed)}.` : `En ${facts.lugar} las capas del sistema no registran poblaciones, escuelas ni centros de salud expuestos a inundación.`,
+      ...(vulnerable.cantonesMasExpuestos.length > 0 ? [`Lo expuesto se concentra en ${list(vulnerable.cantonesMasExpuestos.map(({ canton }) => canton))}.`] : []),
+      ...(resources.length > 0 ? [`Para responder cuenta con ${list(resources)}.`] : []),
+      ...(vulnerable.comparacionConLasDemasProvincias?.length
+        ? [`Frente al país ocupa el ${list(vulnerable.comparacionConLasDemasProvincias)} (el puesto 1 es la que más tiene).`]
+        : []),
+      ...(vulnerable.indiceDePreparacion
+        ? [`Su preparación es ${vulnerable.indiceDePreparacion.nivel} según el índice: puesto ${vulnerable.indiceDePreparacion.puesto} de ${vulnerable.indiceDePreparacion.deProvincias} (el 1 es la más preparada).`]
+        : []),
+      ...(vulnerable.lectura ? [`En resumen: ${vulnerable.lectura}.`] : []),
+    ].join(' ');
+  }
+
+  return { headline, observed: observed.join(' '), expected: expected.join(' '), meaning, vulnerability };
 }
