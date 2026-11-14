@@ -35,6 +35,23 @@ export interface GalapagosStationRain extends GalapagosStation, RainReading {
    * hasta la última hora con dato. `hour` es la hora transcurrida desde ese inicio (1 a 48).
    */
   twoDays: Array<{ hour: number; time: string; accumulatedMm: number }>;
+  /** Los dos límites de la estación, con su lluvia acumulada en cada una de las 48 horas de sus dos días. */
+  limits: TwoDayLimitCurve[];
+}
+
+export interface TwoDayLimitCurve {
+  key: 'upper' | 'lower';
+  label: string;
+  totalMm: number;
+  accumulatedMm: number[];
+}
+
+/** Los límites de una estación como curvas acumuladas. */
+function limitCurves(code: string): TwoDayLimitCurve[] {
+  return (TWO_DAY_LIMITS[code] ?? []).map(({ key, label, hourlyMm }) => {
+    const accumulated = accumulate(hourlyMm);
+    return { key, label, totalMm: accumulated.at(-1) ?? 0, accumulatedMm: accumulated };
+  });
 }
 
 export interface GalapagosRainSnapshot {
@@ -43,8 +60,8 @@ export interface GalapagosRainSnapshot {
   /** Las 00:00 de ayer (ISO 8601): el inicio de la gráfica de dos días. */
   twoDaysFrom: string;
   stations: GalapagosStationRain[];
-  /** Los dos límites de Santa Cruz, con su lluvia acumulada en cada una de las 48 horas de sus dos días. */
-  limits: Array<{ key: 'upper' | 'lower'; label: string; totalMm: number; accumulatedMm: number[] }>;
+  /** Los límites de Santa Cruz (los de cada estación van en `stations[].limits`). */
+  limits: TwoDayLimitCurve[];
   /** Los episodios de la comparación por duración, con su lluvia máxima según la duración. */
   references: Array<{
     key: 'upper' | 'lower';
@@ -110,12 +127,10 @@ export class GalapagosRainService {
           ...reading,
           maxByDurationMm: maxByDuration(recent.map(({ mm }) => mm)),
           twoDays: times.map((time, index) => ({ hour: index + 1, time: new Date(time).toISOString(), accumulatedMm: accumulated[index] })),
+          limits: limitCurves(station.code),
         };
       }),
-      limits: TWO_DAY_LIMITS.map(({ key, label, hourlyMm }) => {
-        const accumulated = accumulate(hourlyMm);
-        return { key, label, totalMm: accumulated.at(-1) ?? 0, accumulatedMm: accumulated };
-      }),
+      limits: limitCurves(GALAPAGOS_STATIONS[0].code),
       references: REFERENCE_EVENTS.map(({ hourlyMm, ...event }) => ({ ...event, maxByDurationMm: maxByDuration(hourlyMm) })),
       thresholds: { alarm5hMm: ALARM_5H_MM, alarmBurstMm: ALARM_BURST_MM, extreme3hMm: EXTREME_3H_MM, extreme6hMm: EXTREME_6H_MM },
     };

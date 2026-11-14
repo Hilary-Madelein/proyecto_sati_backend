@@ -5,12 +5,24 @@ import type { HourlyRain } from '../weather-stations/weather-station-source.js';
  * transmiten allá. No usa los umbrales generales del país, sino lo que pasó en esas
  * mismas estaciones (lluvia horaria validada del INAMHI, 28/10 al 13/11/2026).
  *
- * Los dos límites de referencia son de Santa Cruz:
+ * Cada estación se compara con dos límites sacados de su propio registro.
+ *
+ * Santa Cruz:
  * - Límite superior: 30 y 31 de octubre de 2026. 229 mm en dos días, con 96,6 mm en
  *   3 horas y 136,7 mm en 6: se desbordó la cañada de La Cascada (1 fallecido,
  *   2.760 afectados, cantón en emergencia).
  * - Límite inferior: 11 y 12 de noviembre de 2026. 30 mm en dos días, en chubascos
  *   cortos y separados, tras una semana casi seca: sin inundación reportada.
+ *
+ * San Cristóbal (no tiene un desastre en el registro):
+ * - Límite superior: 11 y 12 de noviembre de 2026. 189 mm en dos días, con 65,5 mm
+ *   en 3 horas y 101,2 mm en 6: se inundó una vía en La Lobería, sin afectados. Es
+ *   el único episodio con inundación reportada.
+ * - Límite inferior: 9 y 10 de noviembre de 2026. 24 mm en dos días, en lloviznas:
+ *   sin consecuencias.
+ * - Ojo: el 30 y 31 de octubre cayeron 241 mm en dos días, más que en el límite
+ *   superior, sin inundación reportada. Llovió más repartido (59,6 mm en 3 horas y
+ *   91 en 6): en San Cristóbal el total de dos días, solo, no decide.
  *
  * La alarma (regla acordada con el equipo el 13/11/2026) salta con unos 25 mm en 5
  * horas, o cuando a una tanda de unos 15 mm le sigue, tras una pausa, otra parecida.
@@ -106,10 +118,11 @@ export interface TwoDayLimit {
 }
 
 /**
- * Los dos límites de Santa Cruz para la gráfica de dos días: la lluvia de cada hora
- * de los dos días de cada episodio, con las horas del registro del INAMHI.
+ * Los dos límites de cada estación para la gráfica de dos días: la lluvia de cada
+ * hora de los dos días de cada episodio, con las horas del registro del INAMHI.
  */
-export const TWO_DAY_LIMITS: readonly TwoDayLimit[] = [
+export const TWO_DAY_LIMITS: Readonly<Record<string, readonly TwoDayLimit[]>> = {
+  M0191: [
   {
     key: 'upper',
     label: 'Límite superior: 30-31 oct, desborde',
@@ -126,7 +139,26 @@ export const TWO_DAY_LIMITS: readonly TwoDayLimit[] = [
       0.0, 0.0, 0.0, 0.0, 0.0, 1.3, 11.3, 0.7, 0.0, 0.0, 8.0, 3.2, 0.8, 0.0, 0.0, 0.0, 1.5, 1.8, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
     ],
   },
-];
+  ],
+  M0221: [
+    {
+      key: 'upper',
+      label: 'Límite superior: 11-12 nov, vía inundada',
+      hourlyMm: [
+        0.0, 0.0, 2.9, 6.6, 1.2, 7.8, 0.0, 0.0, 0.1, 0.0, 0.2, 0.1, 0.0, 0.0, 0.6, 13.7, 5.4, 7.6, 3.0, 0.4, 0.3, 0.4, 0.4, 0.1,
+        0.3, 0.0, 7.9, 1.8, 7.7, 5.3, 20.3, 7.6, 10.7, 12.7, 42.1, 7.8, 2.4, 0.9, 1.9, 1.6, 3.7, 0.1, 2.4, 0.0, 0.4, 0.1, 0.9, 0.0,
+      ],
+    },
+    {
+      key: 'lower',
+      label: 'Límite inferior: 9-10 nov',
+      hourlyMm: [
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.1, 0.0, 1.1, 0.0, 0.7, 0.4, 0.1, 0.1, 3.9, 3.2, 1.0, 0.1, 0.0, 0.0, 0.0, 4.6,
+        0.1, 0.0, 0.7, 3.1, 0.2, 0.0, 0.0, 0.0, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.1, 0.2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 4.0,
+      ],
+    },
+  ],
+};
 
 const HOUR_MS = 60 * 60 * 1000;
 /** El registro del INAMHI cuenta los días en hora del continente (UTC-5). */

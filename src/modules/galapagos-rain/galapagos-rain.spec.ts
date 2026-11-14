@@ -72,11 +72,12 @@ describe('lectura de la lluvia de una estación de Galápagos', () => {
     expect(readRain([])).toMatchObject({ lastTime: null, hoursWithData: 0, mm24h: 0, level: 'normal' });
   });
 
-  it('los límites de dos días son los de Santa Cruz', () => {
-    const [upper, lower] = TWO_DAY_LIMITS;
-    expect([upper.hourlyMm.length, lower.hourlyMm.length]).toEqual([48, 48]);
-    expect(accumulate(upper.hourlyMm).at(-1)).toBe(229);
-    expect(accumulate(lower.hourlyMm).at(-1)).toBe(30.3);
+  it('cada estación tiene sus dos límites de dos días, sacados de su propio registro', () => {
+    const totals = (code: string) => TWO_DAY_LIMITS[code].map(({ key, hourlyMm }) => [key, hourlyMm.length, accumulate(hourlyMm).at(-1)]);
+    // Santa Cruz: el desborde del 30-31 de octubre y los chubascos del 11-12 de noviembre.
+    expect(totals('M0191')).toEqual([['upper', 48, 229], ['lower', 48, 30.3]]);
+    // San Cristóbal: la vía inundada del 11-12 de noviembre y las lloviznas del 9-10.
+    expect(totals('M0221')).toEqual([['upper', 48, 189.4], ['lower', 48, 23.8]]);
     expect(accumulate([1.5, null, 2])).toEqual([1.5, 1.5, 3.5]);
   });
 
@@ -196,10 +197,16 @@ describe('alarma de Galápagos por Telegram', () => {
     // 25 horas desde las 00:00 del 30/10; el acumulado coincide con el límite superior a esa misma hora.
     expect(santaCruz.twoDays).toHaveLength(25);
     expect(santaCruz.twoDays.at(-1)).toEqual({ hour: 25, time: '2026-10-31T06:00:00.000Z', accumulatedMm: 155.3 });
-    expect(snapshot.limits.map(({ key, totalMm, accumulatedMm }) => [key, totalMm, accumulatedMm.length, accumulatedMm[24]])).toEqual([
+    expect(santaCruz.limits.map(({ key, totalMm, accumulatedMm }) => [key, totalMm, accumulatedMm.length, accumulatedMm[24]])).toEqual([
       ['upper', 229, 48, 155.3],
       ['lower', 30.3, 48, 1.7],
     ]);
+    expect(sanCristobal.limits.map(({ key, label, totalMm }) => [key, label, totalMm])).toEqual([
+      ['upper', 'Límite superior: 11-12 nov, vía inundada', 189.4],
+      ['lower', 'Límite inferior: 9-10 nov', 23.8],
+    ]);
+    // Los límites de Santa Cruz siguen también en la raíz de la respuesta.
+    expect(snapshot.limits).toEqual(santaCruz.limits);
     expect(snapshot.thresholds).toEqual({ alarm5hMm: 25, alarmBurstMm: 15, extreme3hMm: 70, extreme6hMm: 110 });
     expect(snapshot.references.map(({ key, maxByDurationMm }) => [key, maxByDurationMm.length])).toEqual([['upper', 24], ['lower', 24]]);
   });
@@ -209,11 +216,15 @@ describe('alarma de Galápagos por Telegram', () => {
     const text = galapagosAlertMessage({
       code: 'M0191', island: 'Santa Cruz', place: 'Puerto Ayora', cantonCode: '2003', name: 'Charles Darwin 1', lat: 0, lng: 0, maxByDurationMm: [],
       twoDays: [{ hour: 17, time: '2026-10-30T22:00:00.000Z', accumulatedMm: 41.1 }],
+      limits: [
+        { key: 'upper', label: 'Límite superior: 30-31 oct, desborde', totalMm: 229, accumulatedMm: [] },
+        { key: 'lower', label: 'Límite inferior: 11-12 nov', totalMm: 30.3, accumulatedMm: [] },
+      ],
       ...readRain(hours),
     }).text;
     expect(text).toContain('Hasta: vie, 30 oct, 16:00 (hora de Galápagos)');
     expect(text).toContain('Última hora: 24 mm · 5 horas: 25,2 mm · desde ayer: 41,1 mm');
-    expect(text).toContain('Referencias de Santa Cruz en dos días: 30,3 mm (límite inferior) y 229 mm (desborde del 30-31 de octubre).');
+    expect(text).toContain('En dos días, sus referencias: 30,3 mm (límite inferior: 11-12 nov) y 229 mm (límite superior: 30-31 oct, desborde).');
     expect(text.split('\n').length).toBeLessThanOrEqual(8);
   });
 });
