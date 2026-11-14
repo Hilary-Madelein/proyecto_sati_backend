@@ -119,14 +119,6 @@ export const envSchema = z.object({
   SATELLITE_PRECIPITATION_WCS_URL: z
     .url()
     .default('https://services.geoglows.org/geoserver/satellite_based_precipitation/wcs'),
-  /**
-   * Lluvia estimada PARDIG de Google DeepMind: carpeta pública (sin clave) con una
-   * imagen cada 15 minutos. Vacío = no se usa PARDIG.
-   */
-  PARDIG_BASE_URL: z
-    .url()
-    .default('https://storage.googleapis.com/pardig_1/NRT/zarr/2026_to_present')
-    .or(z.literal('').transform(() => undefined)),
 
   // ── Notificaciones por correo (SMTP) ─────────────────────────────────────
   /** Servidor SMTP (p. ej. smtp.gmail.com, smtp-relay.brevo.com). Vacío = los correos solo van al log. */
