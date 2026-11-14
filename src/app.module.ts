@@ -16,6 +16,7 @@ import { CantonAnalysisModule } from './modules/canton-analysis/canton-analysis.
 import { EventsModule } from './modules/events/events.module.js';
 import { FloodAlertsModule } from './modules/flood-alerts/flood-alerts.module.js';
 import { FloodHubModule } from './modules/flood-hub/flood-hub.module.js';
+import { GalapagosRainModule } from './modules/galapagos-rain/galapagos-rain.module.js';
 import { HealthModule } from './modules/health/health.module.js';
 import { HydrologyModule } from './modules/hydrology/hydrology.module.js';
 import { IngestionModule } from './modules/ingestion/ingestion.module.js';
@@ -53,6 +54,7 @@ import { StorageModule } from './storage/storage.module.js';
     SituationAnalysisModule,
     NotificationsModule,
     FloodAlertsModule,
+    GalapagosRainModule,
     AdminAuthModule,
     HealthModule,
 
