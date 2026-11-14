@@ -8,7 +8,7 @@ import type { HourlyRain, StationRainArchive } from '../weather-stations/weather
 import type { WeatherStationsService } from '../weather-stations/weather-stations.service.js';
 import { galapagosAlertMessage } from './galapagos-alert-message.js';
 import { GalapagosAlertsService, wantsGalapagos } from './galapagos-alerts.service.js';
-import { REFERENCE_EVENTS, accumulate, maxByDuration, readRain, type GalapagosLevel } from './galapagos-rain.js';
+import { REFERENCE_EVENTS, TWO_DAY_LIMITS, accumulate, maxByDuration, readRain, twoDayStart, type GalapagosLevel } from './galapagos-rain.js';
 import { GalapagosRainService } from './galapagos-rain.service.js';
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -17,77 +17,81 @@ const HOUR_MS = 60 * 60 * 1000;
 const series = (values: readonly (number | null)[], end: number): HourlyRain[] =>
   values.map((mm, index) => ({ time: new Date(end - (values.length - 1 - index) * HOUR_MS).toISOString(), mm }));
 
-/** Lluvia medida en Santa Cruz (M0191) del 30/10 03:00 al 31/10 04:00, hora del continente. */
+/** Lluvia medida en Santa Cruz (M0191) del 30/10 03:00 al 31/10 04:00, hora del registro. */
 const SANTA_CRUZ = [2.0, 0.0, 0.1, 1.4, 5.7, 3.0, 1.1, 0.8, 1.0, 0.6, 0.0, 0.8, 0.4, 0.0, 24.0, 20.6, 1.5, 0.4, 5.2, 0.3, 24.7, 24.9, 36.8, 34.9, 13.8, 1.6];
 /** Lluvia medida en San Cristóbal (M0221) el 12/11, de las 02:00 a las 19:00 de Galápagos. */
 const SAN_CRISTOBAL = [7.9, 1.8, 7.7, 5.3, 20.3, 7.6, 10.7, 12.7, 42.1, 7.8, 2.4, 0.9, 1.9, 1.6, 3.7, 0.1, 2.4, 0.0];
+/** Lluvia medida en Santa Cruz el 12/11 (el límite inferior), de las 06:00 a las 19:00 del registro. */
+const LOWER_LIMIT_DAY = [1.3, 11.3, 0.7, 0.0, 0.0, 8.0, 3.2, 0.8, 0.0, 0.0, 0.0, 1.5, 1.8, 0.0];
 
 /** Nivel hora a hora, como lo vería la alarma: en cada hora, las últimas 24 con dato. */
-function replay(values: readonly number[], prior: HourlyRain[] | null = []): GalapagosLevel[] {
+function replay(values: readonly number[]): GalapagosLevel[] {
   const start = Date.parse('2026-10-30T08:00:00Z');
-  return values.map((_, index) => readRain(series(values.slice(Math.max(0, index - 23), index + 1), start + index * HOUR_MS), prior).level);
+  return values.map((_, index) => readRain(series(values.slice(Math.max(0, index - 23), index + 1), start + index * HOUR_MS)).level);
 }
 
 describe('lectura de la lluvia de una estación de Galápagos', () => {
-  it('suma hasta la última hora con dato y deja en normal una lluvia corriente', () => {
-    const reading = readRain(series([0, 1.3, 11.3, 0.7, 0, 0, 8.0, 3.2, 0.8, null], Date.parse('2026-11-12T18:00:00Z')), []);
-    expect(reading).toMatchObject({ lastTime: '2026-11-12T17:00:00.000Z', hoursWithData: 9, mm1h: 0.8, mm3h: 12, mm6h: 12.7, mm24h: 25.3, level: 'normal', reason: null, alarmThresholdMm: 100 });
+  it('suma hasta la última hora con dato', () => {
+    const reading = readRain(series([0, 1.3, 11.3, 0.7, 0, 0, 8.0, 3.2, 0.8, null], Date.parse('2026-11-12T18:00:00Z')));
+    expect(reading).toMatchObject({ lastTime: '2026-11-12T17:00:00.000Z', hoursWithData: 9, mm1h: 0.8, mm3h: 12, mm5h: 12, mm6h: 12.7, mm24h: 25.3, level: 'normal', reason: null });
   });
 
-  it('Santa Cruz, 30 de octubre: alarma al pasar de 100 mm y extrema una hora después, antes del pico', () => {
+  it('el límite inferior (Santa Cruz, 12 de noviembre) no dispara la alarma: 20 mm en 5 horas', () => {
+    expect(replay(LOWER_LIMIT_DAY).every((level) => level === 'normal')).toBe(true);
+  });
+
+  it('Santa Cruz, 30 de octubre: alarma con la primera tanda de la tarde y extrema de madrugada, antes del pico', () => {
     const levels = replay(SANTA_CRUZ);
-    // Hasta las 23:00 (hora del continente) llevaba 93,6 mm: todavía normal.
-    expect(levels.slice(0, 21).every((level) => level === 'normal')).toBe(true);
-    // Con la hora de las 00:00 pasa de 100 mm: alarma.
-    expect(levels[21]).toBe('alarm');
-    // Con la de la 01:00 lleva 86,4 mm en 3 horas: extrema, cuando aún faltaban 48,7 mm por caer.
+    expect(levels.slice(0, 14).every((level) => level === 'normal')).toBe(true);
+    // Con los 24 mm de las 17:00 del registro lleva 25,2 mm en 5 horas: alarma, nueve horas antes del desborde.
+    expect(levels.slice(14, 22).every((level) => level === 'alarm')).toBe(true);
+    // Con la hora de la 01:00 lleva 86,4 mm en 3 horas: extrema, cuando aún faltaban 48,7 mm por caer.
     expect(levels[22]).toBe('extreme');
-    expect(levels[23]).toBe('extreme');
+    expect(readRain(series(SANTA_CRUZ.slice(0, 15), 0)).reason).toBe('25,2 mm en 5 horas');
+    expect(readRain(series(SANTA_CRUZ.slice(0, 23), 0)).reason).toBe('86,4 mm en 3 horas (en el desborde del 30 de octubre fueron 96,6)');
   });
 
-  it('San Cristóbal, 12 de noviembre: alarma, sin llegar a extrema', () => {
-    // El día anterior habían caído 54,7 mm, que entran en las 24 horas.
-    const levels = replay([13.7, 5.4, 7.6, 3.0, 0.4, 0.3, 0.4, 0.4, 0.1, 0.3, 0.0, ...SAN_CRISTOBAL]);
-    expect(levels).toContain('alarm');
+  it('San Cristóbal, 12 de noviembre: alarma con la hora de los 20 mm, sin llegar a extrema', () => {
+    const levels = replay(SAN_CRISTOBAL);
+    expect(levels.indexOf('alarm')).toBe(4);
     expect(levels).not.toContain('extreme');
-    // Salta con la hora de los 12,7 mm, antes de la de 42,1 mm.
-    expect(levels.indexOf('alarm')).toBe(11 + 7);
   });
 
-  it('con el suelo cargado la alarma salta con la mitad', () => {
-    const end = Date.parse('2026-11-02T20:00:00Z');
-    const rain = series([14.6, 8.5, 2.0, 3.0, 4.9, 2.0, 11.0, 5.0], end);
-    // Sin lluvia previa, 51 mm en 24 horas no alcanzan.
-    expect(readRain(rain, [])).toMatchObject({ mm24h: 51, level: 'normal', loaded: false });
-    // Con 250 mm en los tres días anteriores, sí.
-    const loaded = readRain(rain, series([120, 80, 50.9], end - 24 * HOUR_MS));
-    expect(loaded).toMatchObject({ level: 'alarm', loaded: true, priorMm: 250.9, alarmThresholdMm: 50 });
-    expect(loaded.reason).toContain('suelo cargado (250,9 mm en los tres días anteriores)');
-    // Si el archivo no se pudo leer, no se supone lluvia previa.
-    expect(readRain(rain, null)).toMatchObject({ level: 'normal', priorMm: null, loaded: false });
+  it('dos tandas de unos 15 mm separadas por una pausa también son alarma', () => {
+    // Llovió 16 mm, paró cinco horas y vuelve a llover parecido: en 5 horas no llega a 25 mm.
+    const again = readRain(series([16, 0, 0, 0, 0, 0, 15.5], 0));
+    expect(again).toMatchObject({ mm5h: 15.5, level: 'alarm', reason: 'dos tandas de lluvia con una pausa entre ellas: 16 mm y 15,5 mm' });
+    // Si la segunda es menor, o si la primera fue hace más de 12 horas, no.
+    expect(readRain(series([16, 0, 0, 0, 0, 0, 9], 0)).level).toBe('normal');
+    expect(readRain(series([16, ...Array<number>(12).fill(0), 15.5], 0)).level).toBe('normal');
+    // Una tanda de varias horas cuenta entera.
+    expect(readRain(series([8, 8, 0, 0, 0, 0, 0, 0, 7, 8], 0))).toMatchObject({ level: 'alarm', reason: 'dos tandas de lluvia con una pausa entre ellas: 16 mm y 15 mm' });
   });
 
-  it('sin datos queda en normal y lo dice', () => {
-    expect(readRain([], [])).toMatchObject({ lastTime: null, hoursWithData: 0, mm24h: 0, level: 'normal' });
+  it('sin datos queda en normal', () => {
+    expect(readRain([])).toMatchObject({ lastTime: null, hoursWithData: 0, mm24h: 0, level: 'normal' });
   });
 
-  it('los dos episodios de referencia traen sus cifras', () => {
-    const [upper, lower] = REFERENCE_EVENTS;
-    expect([upper.hourlyMm.length, lower.hourlyMm.length]).toEqual([24, 24]);
-    expect(accumulate(upper.hourlyMm).at(-1)).toBe(upper.totalMm);
-    expect(accumulate(lower.hourlyMm).at(-1)).toBe(lower.totalMm);
+  it('los límites de dos días son los de Santa Cruz', () => {
+    const [upper, lower] = TWO_DAY_LIMITS;
+    expect([upper.hourlyMm.length, lower.hourlyMm.length]).toEqual([48, 48]);
+    expect(accumulate(upper.hourlyMm).at(-1)).toBe(229);
+    expect(accumulate(lower.hourlyMm).at(-1)).toBe(30.3);
     expect(accumulate([1.5, null, 2])).toEqual([1.5, 1.5, 3.5]);
   });
 
-  it('la lluvia máxima según la duración sale de la serie horaria y coincide con las cifras de cada episodio', () => {
+  it('la gráfica de dos días empieza a las 00:00 de ayer, según el día del registro (hora del continente)', () => {
+    // 13/11 a las 15:00 del continente: empieza el 12/11 a las 00:00 del continente.
+    expect(new Date(twoDayStart(Date.parse('2026-11-13T20:00:00Z'))).toISOString()).toBe('2026-11-12T05:00:00.000Z');
+    // 13/11 a las 23:30 del continente (ya es 14 en UTC): sigue empezando el 12.
+    expect(new Date(twoDayStart(Date.parse('2026-11-14T04:30:00Z'))).toISOString()).toBe('2026-11-12T05:00:00.000Z');
+  });
+
+  it('la lluvia máxima según la duración coincide con las cifras de cada episodio', () => {
     expect(maxByDuration([1, 5, null, 4, 2])).toEqual([5, 6, 9, 11, 12]);
     const [upper, lower] = REFERENCE_EVENTS.map(({ hourlyMm }) => maxByDuration(hourlyMm));
-    // Santa Cruz, 30-31/10: 36,8 mm en 1 h; 96,6 en 3; 136,7 en 6; 188,7 en 12; 203,6 en 24.
     expect([upper[0], upper[2], upper[5], upper[11], upper[23]]).toEqual([36.8, 96.6, 136.7, 188.7, 203.6]);
-    // San Cristóbal, 12/11: 42,1 mm en 1 h; 65,5 en 3; 101,2 en 6; 127,2 en 12; 160,7 en 24.
     expect([lower[0], lower[2], lower[5], lower[11], lower[23]]).toEqual([42.1, 65.5, 101.2, 127.2, 160.7]);
-    // Desde las 2 horas, el borde superior queda siempre por encima del inferior.
-    expect(upper.slice(1).every((mm, index) => mm > lower[index + 1])).toBe(true);
   });
 });
 
@@ -109,10 +113,11 @@ describe('a quién se avisa', () => {
 });
 
 describe('alarma de Galápagos por Telegram', () => {
+  // 31/10 a la 01:00 del registro (06:00 UTC).
   const NOW = new Date('2026-10-31T06:00:00Z');
   const station = (code: string, id: number, values: readonly (number | null)[]) => ({ id, code, name: `Estación ${code}`, lat: -0.74, lng: -90.3, hours: series(values, NOW.getTime()) });
 
-  function setup(hours: { santaCruz: readonly (number | null)[]; sanCristobal?: readonly (number | null)[] }) {
+  function setup(hours: { santaCruz: readonly (number | null)[]; sanCristobal?: readonly (number | null)[] }, archived: HourlyRain[] = []) {
     const state = { hours };
     const sent: Array<{ chatId: string; message: TelegramMessage }> = [];
     const recorded = new Set<string>();
@@ -124,7 +129,7 @@ describe('alarma de Galápagos por Telegram', () => {
         stations: [station('M0191', 64210, state.hours.santaCruz), station('M0221', 63782, state.hours.sanCristobal ?? [0, 0, 0])],
       }),
     } as unknown as WeatherStationsService;
-    const archive = { getHourlyRain: async () => new Map<number, HourlyRain[]>() } as unknown as StationRainArchive;
+    const archive = { getHourlyRain: async () => new Map<number, HourlyRain[]>([[64210, archived]]) } as unknown as StationRainArchive;
     const rain = new GalapagosRainService(stations, archive);
     const chats = [
       { chatId: 'pais', active: true, zones: [], provinces: [], cantons: [] },
@@ -147,19 +152,21 @@ describe('alarma de Galápagos por Telegram', () => {
   }
 
   it('avisa una vez al subir de nivel, solo a quien le toca, y otra vez si llega a extrema', async () => {
-    const { state, sent, alerts } = setup({ santaCruz: SANTA_CRUZ.slice(0, 22) });
+    const { state, sent, alerts } = setup({ santaCruz: SANTA_CRUZ.slice(0, 15) });
     await alerts.check(NOW);
     expect(sent.map(({ chatId }) => chatId)).toEqual(['pais', 'galapagos']);
     expect(sent[0].message.text).toContain('⚠️ <b>SATI · Alarma de lluvia en Galápagos</b>');
     expect(sent[0].message.text).toContain('📍 Santa Cruz · estación M0191 (Puerto Ayora)');
-    expect(sent[0].message.text).toContain('<b>118,5 mm en las últimas 24 horas</b> (umbral de alarma: 100 mm)');
+    expect(sent[0].message.text).toContain('🌧️ <b>25,2 mm en 5 horas.</b>');
+    expect(sent[0].message.text).toContain('Última hora: 24 mm · 5 horas: 25,2 mm');
     expect(sent[0].message.text).toContain('🗺️ Mapa: https://sati.example');
 
-    // Sigue en alarma: no repite.
+    // Sigue lloviendo y sigue en alarma: no repite.
+    state.hours = { santaCruz: SANTA_CRUZ.slice(0, 20) };
     await alerts.check(NOW);
     expect(sent).toHaveLength(2);
 
-    // Una hora después la intensidad pasa a extrema: nuevo aviso.
+    // De madrugada la intensidad pasa a extrema: nuevo aviso.
     state.hours = { santaCruz: SANTA_CRUZ.slice(0, 23) };
     await alerts.check(NOW);
     expect(sent).toHaveLength(4);
@@ -167,36 +174,46 @@ describe('alarma de Galápagos por Telegram', () => {
     expect(sent[2].message.text).toContain('86,4 mm en 3 horas');
   });
 
-  it('con lluvia corriente o con datos viejos no avisa', async () => {
-    const calm = setup({ santaCruz: [0, 1.3, 11.3, 0.7, 8.0] });
+  it('con la lluvia del límite inferior o con datos viejos no avisa', async () => {
+    const calm = setup({ santaCruz: LOWER_LIMIT_DAY });
     await calm.alerts.check(NOW);
     expect(calm.sent).toHaveLength(0);
     // La misma lluvia de alarma, pero la revisión ocurre cinco horas después del último dato.
-    const stale = setup({ santaCruz: SANTA_CRUZ.slice(0, 22) });
+    const stale = setup({ santaCruz: SANTA_CRUZ.slice(0, 15) });
     await stale.alerts.check(new Date(NOW.getTime() + 5 * HOUR_MS));
     expect(stale.sent).toHaveLength(0);
   });
 
-  it('la consulta entrega las dos estaciones, sus curvas y los bordes', async () => {
-    const { rain } = setup({ santaCruz: SANTA_CRUZ.slice(0, 22), sanCristobal: [5, 0, 2.5] });
+  it('la consulta entrega "aquí estamos" desde las 00:00 de ayer, uniendo el archivo con lo reciente, y los dos límites', async () => {
+    // Lo reciente: 24 horas hasta ahora (31/10 a la 01:00 del registro). El archivo: las horas anteriores del 30/10.
+    const recent = SANTA_CRUZ.slice(0, 23); // termina a la 01:00 del 31/10
+    const archived = series([0, 0], NOW.getTime() - recent.length * HOUR_MS); // 01:00 y 02:00 del 30/10
+    const { rain } = setup({ santaCruz: recent, sanCristobal: [5, 0, 2.5] }, archived);
     const snapshot = await rain.snapshot(NOW);
-    expect(snapshot.stations.map(({ code, island, level }) => [code, island, level])).toEqual([
-      ['M0191', 'Santa Cruz', 'alarm'],
-      ['M0221', 'San Cristóbal', 'normal'],
+    expect(snapshot.twoDaysFrom).toBe('2026-10-30T05:00:00.000Z');
+    const [santaCruz, sanCristobal] = snapshot.stations;
+    expect([santaCruz.code, santaCruz.level, sanCristobal.code, sanCristobal.level]).toEqual(['M0191', 'extreme', 'M0221', 'normal']);
+    // 25 horas desde las 00:00 del 30/10; el acumulado coincide con el límite superior a esa misma hora.
+    expect(santaCruz.twoDays).toHaveLength(25);
+    expect(santaCruz.twoDays.at(-1)).toEqual({ hour: 25, time: '2026-10-31T06:00:00.000Z', accumulatedMm: 155.3 });
+    expect(snapshot.limits.map(({ key, totalMm, accumulatedMm }) => [key, totalMm, accumulatedMm.length, accumulatedMm[24]])).toEqual([
+      ['upper', 229, 48, 155.3],
+      ['lower', 30.3, 48, 1.7],
     ]);
-    expect(snapshot.stations[1].hours.map(({ accumulatedMm }) => accumulatedMm)).toEqual([5, 5, 7.5]);
-    expect(snapshot.references.map(({ key, totalMm, maxByDurationMm }) => [key, totalMm, maxByDurationMm.length])).toEqual([['upper', 203.6, 24], ['lower', 160.7, 24]]);
-    expect(snapshot.stations[1].maxByDurationMm).toEqual([5, 5, 7.5]);
-    expect(snapshot.thresholds).toMatchObject({ alarm24hMm: 100, alarm24hLoadedMm: 50, extreme3hMm: 70, extreme6hMm: 110 });
+    expect(snapshot.thresholds).toEqual({ alarm5hMm: 25, alarmBurstMm: 15, extreme3hMm: 70, extreme6hMm: 110 });
+    expect(snapshot.references.map(({ key, maxByDurationMm }) => [key, maxByDurationMm.length])).toEqual([['upper', 24], ['lower', 24]]);
   });
 
-  it('el mensaje dice la lluvia previa cuando la hay', () => {
+  it('el mensaje es corto y trae las dos referencias', () => {
+    const hours = series(SANTA_CRUZ.slice(0, 15), Date.parse('2026-10-30T22:00:00Z'));
     const text = galapagosAlertMessage({
-      code: 'M0191', island: 'Santa Cruz', place: 'Puerto Ayora', cantonCode: '2003', name: 'Charles Darwin 1', lat: 0, lng: 0, hours: [], maxByDurationMm: [],
-      ...readRain(series([14.6, 8.5, 2.0, 3.0, 4.9, 2.0, 11.0, 5.0], Date.parse('2026-11-02T20:00:00Z')), series([120, 80, 50.9], Date.parse('2026-11-01T20:00:00Z'))),
+      code: 'M0191', island: 'Santa Cruz', place: 'Puerto Ayora', cantonCode: '2003', name: 'Charles Darwin 1', lat: 0, lng: 0, maxByDurationMm: [],
+      twoDays: [{ hour: 17, time: '2026-10-30T22:00:00.000Z', accumulatedMm: 41.1 }],
+      ...readRain(hours),
     }).text;
-    expect(text).toContain('Lluvia previa: 250,9 mm en los tres días anteriores (suelo cargado: el umbral baja a la mitad).');
-    expect(text).toContain('(umbral de alarma: 50 mm)');
-    expect(text).toContain('Medido hasta: lun, 2 nov, 14:00 (hora de Galápagos)');
+    expect(text).toContain('Hasta: vie, 30 oct, 16:00 (hora de Galápagos)');
+    expect(text).toContain('Última hora: 24 mm · 5 horas: 25,2 mm · desde ayer: 41,1 mm');
+    expect(text).toContain('Referencias de Santa Cruz en dos días: 30,3 mm (límite inferior) y 229 mm (desborde del 30-31 de octubre).');
+    expect(text.split('\n').length).toBeLessThanOrEqual(8);
   });
 });

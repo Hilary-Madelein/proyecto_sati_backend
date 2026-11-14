@@ -1,6 +1,6 @@
 import { escapeHtml } from '../../common/text/escape-html.js';
 import type { TelegramMessage } from '../../integrations/telegram/telegram.client.js';
-import { REFERENCE_EVENTS } from './galapagos-rain.js';
+import { TWO_DAY_LIMITS, accumulate } from './galapagos-rain.js';
 import type { GalapagosStationRain } from './galapagos-rain.service.js';
 
 const mm = (value: number) => `${value.toLocaleString('es-EC', { maximumFractionDigits: 1 })} mm`;
@@ -15,27 +15,25 @@ const timeFormat = new Intl.DateTimeFormat('es-EC', {
   timeZone: 'Pacific/Galapagos',
 });
 
-/** La alarma de lluvia de una estación de Galápagos, como mensaje de Telegram (HTML). */
+const HEADINGS = {
+  alarm: { icon: '⚠️', title: 'Alarma de lluvia en Galápagos' },
+  extreme: { icon: '🚨', title: 'Alarma extrema de lluvia en Galápagos' },
+} as const;
+
+const [UPPER_MM, LOWER_MM] = TWO_DAY_LIMITS.map(({ hourlyMm }) => accumulate(hourlyMm).at(-1) ?? 0);
+
+/** El aviso de lluvia de una estación de Galápagos, como mensaje de Telegram (HTML): lo justo para decidir. */
 export function galapagosAlertMessage(station: GalapagosStationRain): TelegramMessage {
-  const extreme = station.level === 'extreme';
-  const [upper, lower] = REFERENCE_EVENTS;
+  const { icon, title } = HEADINGS[station.level === 'extreme' ? 'extreme' : 'alarm'];
+  const sinceYesterday = station.twoDays.at(-1)?.accumulatedMm ?? station.mm24h;
   const lines = [
-    `${extreme ? '🚨' : '⚠️'} <b>SATI · ${extreme ? 'Alarma extrema' : 'Alarma'} de lluvia en Galápagos</b>`,
+    `${icon} <b>SATI · ${title}</b>`,
     `📍 ${escapeHtml(station.island)} · estación ${escapeHtml(station.code)} (${escapeHtml(station.place)})`,
-    ...(station.lastTime ? [`🕒 Medido hasta: ${escapeHtml(timeFormat.format(new Date(station.lastTime)))} (hora de Galápagos)`] : []),
+    ...(station.lastTime ? [`🕒 Hasta: ${escapeHtml(timeFormat.format(new Date(station.lastTime)))} (hora de Galápagos)`] : []),
     '',
-    `🌧️ <b>${mm(station.mm24h)} en las últimas 24 horas</b> (umbral de alarma: ${station.alarmThresholdMm} mm).`,
-    `En la última hora, ${mm(station.mm1h)}; en 3 horas, ${mm(station.mm3h)}; en 6 horas, ${mm(station.mm6h)}.`,
-    ...(station.priorMm !== null && station.priorMm >= 1
-      ? [`Lluvia previa: ${mm(station.priorMm)} en los tres días anteriores${station.loaded ? ' (suelo cargado: el umbral baja a la mitad)' : ''}.`]
-      : []),
-    ...(station.reason ? ['', `<b>Por qué salta:</b> ${escapeHtml(station.reason)}.`] : []),
-    '',
-    '<b>Para comparar, en estas mismas estaciones:</b>',
-    `• ${escapeHtml(upper.island)}, ${escapeHtml(upper.date)}: ${mm(upper.totalMm)} en 24 horas y ${mm(upper.max3hMm)} en 3 horas; ${escapeHtml(upper.outcome)}.`,
-    `• ${escapeHtml(lower.island)}, ${escapeHtml(lower.date)}: ${mm(lower.totalMm)} en 24 horas y ${mm(lower.max3hMm)} en 3 horas; ${escapeHtml(lower.outcome)}.`,
-    '',
-    '<i>Lluvia medida por el INAMHI en la costa; en la parte alta puede estar lloviendo más. Sigue los avisos de la SNGR, del COE y del INAMHI.</i>',
+    ...(station.reason ? [`🌧️ <b>${escapeHtml(station.reason.charAt(0).toUpperCase() + station.reason.slice(1))}.</b>`] : []),
+    `Última hora: ${mm(station.mm1h)} · 5 horas: ${mm(station.mm5h)} · desde ayer: ${mm(sinceYesterday)}`,
+    `Referencias de Santa Cruz en dos días: ${mm(LOWER_MM)} (límite inferior) y ${mm(UPPER_MM)} (desborde del 30-31 de octubre).`,
   ];
   return { text: lines.join('\n'), silent: false };
 }

@@ -92,7 +92,7 @@ export class GalapagosAlertsService implements OnApplicationBootstrap, OnApplica
     const alertKey = `galapagos-rain:${station.code}:${station.level}:${dayFormat.format(now)}`;
     const subject = `${station.level === 'extreme' ? 'Alarma extrema' : 'Alarma'} de lluvia en ${station.island}`;
     const message = this.withMapLink(galapagosAlertMessage(station));
-    this.logger.log(`${subject}: ${station.mm24h} mm en 24 h, ${station.mm3h} mm en 3 h (${station.code})`);
+    this.logger.log(`${subject}: ${station.mm5h} mm en 5 h, ${station.mm3h} mm en 3 h (${station.code})`);
 
     let sent = 0;
     let attempted = 0;
