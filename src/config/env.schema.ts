@@ -127,6 +127,14 @@ export const envSchema = z.object({
     .url()
     .default('https://storage.googleapis.com/pardig_1/NRT/zarr/2026_to_present')
     .or(z.literal('').transform(() => undefined)),
+  /**
+   * Nivel del mar de los mareógrafos de la red IOC/UNESCO (público, sin clave): se usa
+   * en la matriz de Galápagos (lluvia × mar). Vacío = la matriz decide solo con la lluvia.
+   */
+  IOC_SEA_LEVEL_URL: z
+    .url()
+    .default('https://www.ioc-sealevelmonitoring.org/service.php')
+    .or(z.literal('').transform(() => undefined)),
 
   // ── Notificaciones por correo (SMTP) ─────────────────────────────────────
   /** Servidor SMTP (p. ej. smtp.gmail.com, smtp-relay.brevo.com). Vacío = los correos solo van al log. */

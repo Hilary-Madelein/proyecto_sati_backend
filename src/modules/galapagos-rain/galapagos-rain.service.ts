@@ -16,6 +16,8 @@ import {
   type GalapagosStation,
   type RainReading,
 } from './galapagos-rain.js';
+import { GalapagosSeaService } from './galapagos-sea.service.js';
+import { HIGH_SEA_M, scenarioOf, type GalapagosScenario, type SeaReading } from './galapagos-sea.js';
 
 const HOUR_MS = 60 * 60 * 1000;
 /** Horas que entrega la carga de estaciones; lo anterior sale del archivo. */
@@ -37,6 +39,10 @@ export interface GalapagosStationRain extends GalapagosStation, RainReading {
   twoDays: Array<{ hour: number; time: string; accumulatedMm: number }>;
   /** Los dos límites de la estación, con su lluvia acumulada en cada una de las 48 horas de sus dos días. */
   limits: TwoDayLimitCurve[];
+  /** El mar ahora (mareógrafo de Santa Cruz); null si no hay dato reciente. */
+  sea: SeaReading | null;
+  /** La casilla de la matriz lluvia × mar. */
+  scenario: GalapagosScenario;
 }
 
 export interface TwoDayLimitCurve {
@@ -77,6 +83,10 @@ export interface GalapagosRainSnapshot {
     maxByDurationMm: number[];
   }>;
   thresholds: { alarm5hMm: number; alarmBurstMm: number; extreme3hMm: number; extreme6hMm: number };
+  /** El mar ahora; null si no hay dato reciente (entonces la matriz decide solo con la lluvia). */
+  sea: SeaReading | null;
+  /** Mar alto: desde esta altura (m) sobre su nivel medio. */
+  highSeaM: number;
 }
 
 /**
@@ -92,11 +102,13 @@ export class GalapagosRainService {
   constructor(
     private readonly stations: WeatherStationsService,
     private readonly archive: StationRainArchive,
+    private readonly seaLevel: GalapagosSeaService,
   ) {}
 
   async snapshot(now = new Date()): Promise<GalapagosRainSnapshot> {
     const snapshot = await this.stations.snapshot();
     const start = twoDayStart(now.getTime());
+    const sea = this.seaLevel.current(now);
     const recentFrom = now.getTime() - RECENT_HOURS * HOUR_MS;
     // Sin el archivo, la curva de dos días empieza donde empiezan los datos recientes.
     const older = await this.archive.getHourlyRain(new Date(now.getTime() - TWO_DAYS_HOURS * HOUR_MS), new Date(recentFrom)).catch((error: Error) => {
@@ -128,11 +140,15 @@ export class GalapagosRainService {
           maxByDurationMm: maxByDuration(recent.map(({ mm }) => mm)),
           twoDays: times.map((time, index) => ({ hour: index + 1, time: new Date(time).toISOString(), accumulatedMm: accumulated[index] })),
           limits: limitCurves(station.code),
+          sea,
+          scenario: scenarioOf(reading.level, sea),
         };
       }),
       limits: limitCurves(GALAPAGOS_STATIONS[0].code),
       references: REFERENCE_EVENTS.map(({ hourlyMm, ...event }) => ({ ...event, maxByDurationMm: maxByDuration(hourlyMm) })),
       thresholds: { alarm5hMm: ALARM_5H_MM, alarmBurstMm: ALARM_BURST_MM, extreme3hMm: EXTREME_3H_MM, extreme6hMm: EXTREME_6H_MM },
+      sea,
+      highSeaM: HIGH_SEA_M,
     };
   }
 }

@@ -10,6 +10,8 @@ import { galapagosAlertMessage } from './galapagos-alert-message.js';
 import { GalapagosAlertsService, wantsGalapagos } from './galapagos-alerts.service.js';
 import { REFERENCE_EVENTS, TWO_DAY_LIMITS, accumulate, maxByDuration, readRain, twoDayStart, type GalapagosLevel } from './galapagos-rain.js';
 import { GalapagosRainService } from './galapagos-rain.service.js';
+import { GalapagosSeaService } from './galapagos-sea.service.js';
+import { readSea, scenarioOf, type SeaReading } from './galapagos-sea.js';
 
 const HOUR_MS = 60 * 60 * 1000;
 
@@ -116,10 +118,11 @@ describe('a quién se avisa', () => {
 describe('alarma de Galápagos por Telegram', () => {
   // 31/10 a la 01:00 del registro (06:00 UTC).
   const NOW = new Date('2026-10-31T06:00:00Z');
-  const station = (code: string, id: number, values: readonly (number | null)[]) => ({ id, code, name: `Estación ${code}`, lat: -0.74, lng: -90.3, hours: series(values, NOW.getTime()) });
+  const station = (code: string, id: number, values: readonly (number | null)[], end: number) => ({ id, code, name: `Estación ${code}`, lat: -0.74, lng: -90.3, hours: series(values, end) });
 
   function setup(hours: { santaCruz: readonly (number | null)[]; sanCristobal?: readonly (number | null)[] }, archived: HourlyRain[] = []) {
-    const state = { hours };
+    /** `end`: la hora del último dato de las estaciones. */
+    const state: { hours: typeof hours; sea: SeaReading | null; end: number } = { hours, sea: null, end: NOW.getTime() };
     const sent: Array<{ chatId: string; message: TelegramMessage }> = [];
     const recorded = new Set<string>();
     const stations = {
@@ -127,11 +130,11 @@ describe('alarma de Galápagos por Telegram', () => {
         updatedAt: NOW.toISOString(),
         attribution: 'Estaciones: INAMHI',
         windowHours: 24,
-        stations: [station('M0191', 64210, state.hours.santaCruz), station('M0221', 63782, state.hours.sanCristobal ?? [0, 0, 0])],
+        stations: [station('M0191', 64210, state.hours.santaCruz, state.end), station('M0221', 63782, state.hours.sanCristobal ?? [0, 0, 0], state.end)],
       }),
     } as unknown as WeatherStationsService;
     const archive = { getHourlyRain: async () => new Map<number, HourlyRain[]>([[64210, archived]]) } as unknown as StationRainArchive;
-    const rain = new GalapagosRainService(stations, archive);
+    const rain = new GalapagosRainService(stations, archive, { current: () => state.sea } as unknown as GalapagosSeaService);
     const chats = [
       { chatId: 'pais', active: true, zones: [], provinces: [], cantons: [] },
       { chatId: 'galapagos', active: true, zones: [], provinces: ['Galápagos'], cantons: [] },
@@ -164,12 +167,14 @@ describe('alarma de Galápagos por Telegram', () => {
 
     // Sigue lloviendo y sigue en alarma: no repite.
     state.hours = { santaCruz: SANTA_CRUZ.slice(0, 20) };
-    await alerts.check(NOW);
+    state.end += HOUR_MS;
+    await alerts.check(new Date(state.end));
     expect(sent).toHaveLength(2);
 
     // De madrugada la intensidad pasa a extrema: nuevo aviso.
     state.hours = { santaCruz: SANTA_CRUZ.slice(0, 23) };
-    await alerts.check(NOW);
+    state.end += HOUR_MS;
+    await alerts.check(new Date(state.end));
     expect(sent).toHaveLength(4);
     expect(sent[2].message.text).toContain('🚨 <b>SATI · Alarma extrema de lluvia en Galápagos</b>');
     expect(sent[2].message.text).toContain('86,4 mm en 3 horas');
@@ -221,10 +226,101 @@ describe('alarma de Galápagos por Telegram', () => {
         { key: 'lower', label: 'Límite inferior: 11-12 nov', totalMm: 30.3, accumulatedMm: [] },
       ],
       ...readRain(hours),
+      sea: { time: '2026-10-30T22:00:00.000Z', levelM: -0.2, high: false, place: 'Santa Cruz' },
+      scenario: 'alert',
     }).text;
     expect(text).toContain('Hasta: vie, 30 oct, 16:00 (hora de Galápagos)');
     expect(text).toContain('Última hora: 24 mm · 5 horas: 25,2 mm · desde ayer: 41,1 mm');
     expect(text).toContain('En dos días, sus referencias: 30,3 mm (límite inferior: 11-12 nov) y 229 mm (límite superior: 30-31 oct, desborde).');
+    expect(text).toContain('🌊 Mar bajo: −0,20 m respecto de su nivel medio (mareógrafo de Santa Cruz).');
     expect(text.split('\n').length).toBeLessThanOrEqual(8);
+  });
+
+  it('con lluvia de alarma, si el mar sube a alto pasa a emergencia y avisa de nuevo', async () => {
+    const { state, sent, alerts, rain } = setup({ santaCruz: SANTA_CRUZ.slice(0, 15) });
+    state.sea = { time: NOW.toISOString(), levelM: 0.1, high: false, place: 'Santa Cruz' };
+    await alerts.check(NOW);
+    expect(sent).toHaveLength(2);
+    expect(sent[0].message.text).toContain('⚠️ <b>SATI · Alarma de lluvia en Galápagos</b>');
+    expect(sent[0].message.text).toContain('🌊 Mar bajo: +0,10 m');
+
+    state.sea = { time: NOW.toISOString(), levelM: 0.62, high: true, place: 'Santa Cruz' };
+    expect((await rain.snapshot(NOW)).stations.map(({ scenario }) => scenario)).toEqual(['emergency', 'precaution']);
+    // Con el mismo dato de la estación no se vuelve a decidir: espera al de la hora siguiente.
+    await alerts.check(new Date(NOW.getTime() + 20 * 60_000));
+    expect(sent).toHaveLength(2);
+    state.end += HOUR_MS;
+    await alerts.check(new Date(state.end));
+    expect(sent).toHaveLength(4);
+    expect(sent[2].message.text).toContain('🚨 <b>SATI · Emergencia en Galápagos: lluvia con el mar alto</b>');
+    expect(sent[2].message.text).toContain('🌊 Mar alto: +0,62 m');
+    // Baja la marea y vuelve a subir el mismo día: no repite.
+    state.sea = { time: NOW.toISOString(), levelM: 0.1, high: false, place: 'Santa Cruz' };
+    state.end += HOUR_MS;
+    await alerts.check(new Date(state.end));
+    state.sea = { time: NOW.toISOString(), levelM: 0.7, high: true, place: 'Santa Cruz' };
+    state.end += HOUR_MS;
+    await alerts.check(new Date(state.end));
+    expect(sent).toHaveLength(4);
+  });
+
+  it('el mar alto sin lluvia es precaución y no se avisa', async () => {
+    const { state, sent, alerts, rain } = setup({ santaCruz: LOWER_LIMIT_DAY });
+    state.sea = { time: NOW.toISOString(), levelM: 0.8, high: true, place: 'Santa Cruz' };
+    await alerts.check(NOW);
+    expect(sent).toHaveLength(0);
+    const snapshot = await rain.snapshot(NOW);
+    expect(snapshot.stations[0].scenario).toBe('precaution');
+    expect(snapshot.sea).toEqual(state.sea);
+    expect(snapshot.highSeaM).toBe(0.5);
+  });
+});
+
+describe('matriz lluvia × mar de Galápagos', () => {
+  const NOW = Date.parse('2026-11-14T12:00:00Z');
+  /** Una marea de 12 h 25 min y 0,7 m de amplitud sobre una referencia de 2 m, una lectura por minuto durante tres días. */
+  const tide = (end: number) =>
+    Array.from({ length: 3 * 24 * 60 }, (_, index) => {
+      const time = end - (3 * 24 * 60 - 1 - index) * 60_000;
+      return { time, level: 2 + 0.7 * Math.sin((2 * Math.PI * (time - NOW)) / (745 * 60_000) + Math.PI / 2) };
+    });
+
+  it('las cuatro casillas; la lluvia extrema es emergencia con cualquier marea y sin dato del mar decide la lluvia', () => {
+    expect([scenarioOf('normal', { high: false }), scenarioOf('normal', { high: true }), scenarioOf('alarm', { high: false }), scenarioOf('alarm', { high: true })]).toEqual(['normal', 'precaution', 'alert', 'emergency']);
+    expect([scenarioOf('extreme', { high: false }), scenarioOf('extreme', null), scenarioOf('alarm', null), scenarioOf('normal', null)]).toEqual(['emergency', 'emergency', 'alert', 'normal']);
+  });
+
+  it('mide el mar respecto de su nivel medio: alto en la pleamar, bajo seis horas después', () => {
+    expect(readSea(tide(NOW), NOW)).toMatchObject({ high: true, place: 'Santa Cruz', time: new Date(NOW).toISOString() });
+    expect(readSea(tide(NOW), NOW)!.levelM).toBeGreaterThan(0.6);
+    const low = readSea(tide(NOW + 372 * 60_000), NOW + 372 * 60_000)!;
+    expect(low.high).toBe(false);
+    expect(low.levelM).toBeLessThan(-0.6);
+  });
+
+  it('ignora los saltos del sensor y no usa lecturas viejas o escasas', () => {
+    const spiky = [...tide(NOW - 5 * 60_000), ...Array.from({ length: 5 }, (_, index) => ({ time: NOW - (4 - index) * 60_000, level: 9 }))];
+    expect(readSea(spiky, NOW)!.levelM).toBeLessThan(1);
+    expect(readSea(tide(NOW - 3 * HOUR_MS), NOW)).toBeNull();
+    expect(readSea(tide(NOW).slice(-200), NOW)).toBeNull();
+  });
+
+  it('el servicio baja la semana día por día y después solo lo nuevo', async () => {
+    const calls: Array<[string, string]> = [];
+    const client = {
+      enabled: true,
+      readings: async (_code: string, _sensor: string, from: Date, to: Date) => {
+        calls.push([from.toISOString(), to.toISOString()]);
+        return tide(NOW).filter(({ time }) => time >= from.getTime() && time <= to.getTime());
+      },
+    };
+    const service = new GalapagosSeaService(client as never);
+    expect(service.current(new Date(NOW))).toBeNull();
+    await service.refresh(NOW);
+    expect(calls).toHaveLength(7);
+    expect(service.current(new Date(NOW))).toMatchObject({ high: true });
+    await service.refresh(NOW + 10 * 60_000);
+    expect(calls).toHaveLength(8);
+    expect(calls[7][0]).toBe(new Date(NOW - 10 * 60_000).toISOString());
   });
 });

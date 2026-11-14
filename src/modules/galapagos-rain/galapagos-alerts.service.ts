@@ -10,11 +10,12 @@ import { zoneOfCanton } from '../flood-alerts/planning-zones.js';
 import { NotificationDeliveryEntity } from '../notifications/entities/notification-delivery.entity.js';
 import { DeliveryStore } from '../notifications/notification-stores.js';
 import { galapagosAlertMessage } from './galapagos-alert-message.js';
-import { GALAPAGOS_PROVINCE, LEVEL_RANK, type GalapagosLevel } from './galapagos-rain.js';
+import { GALAPAGOS_PROVINCE } from './galapagos-rain.js';
+import { SCENARIO_RANK, type GalapagosScenario } from './galapagos-sea.js';
 import { GalapagosRainService, type GalapagosStationRain } from './galapagos-rain.service.js';
 
 const CHANNEL = 'telegram';
-/** Las estaciones publican un dato por hora y se recargan cada 10 minutos. */
+/** Cada cuánto se mira si llegó un dato nuevo. La decisión se toma una vez por dato (uno por hora). */
 const CHECK_MS = 5 * 60 * 1000;
 /** La primera revisión espera a que carguen las estaciones. */
 const FIRST_CHECK_DELAY_MS = 2 * 60 * 1000;
@@ -35,16 +36,21 @@ export function wantsGalapagos(chat: ChatScope, cantonCode: string): boolean {
 }
 
 /**
- * Vigila la lluvia de las dos estaciones de Galápagos y avisa por Telegram cuando
- * una sube de nivel (a alarma o a alarma extrema). Mientras siga en el mismo nivel
- * no repite; el historial de envíos evita repetir tras un reinicio el mismo día.
+ * Vigila la lluvia de las dos estaciones de Galápagos, cruzada con el nivel del mar
+ * (la matriz de galapagos-sea.ts), y avisa por Telegram cuando una sube a alerta o a
+ * emergencia. La precaución (mar alto sin lluvia) no se avisa: pasa con cada pleamar.
+ * Decide una vez por hora, cuando llega el dato de la estación, con el mar de ese
+ * momento. Mientras siga en la misma casilla no repite; el historial de envíos evita repetir
+ * tras un reinicio el mismo día.
  * Nunca lanza errores hacia afuera.
  */
 @Injectable()
 export class GalapagosAlertsService implements OnApplicationBootstrap, OnApplicationShutdown {
   private readonly logger = new Logger(GalapagosAlertsService.name);
-  /** Nivel de cada estación en la revisión anterior. */
-  private readonly levels = new Map<string, GalapagosLevel>();
+  /** Casilla de la matriz de cada estación en la revisión anterior. */
+  private readonly scenarios = new Map<string, GalapagosScenario>();
+  /** Hora del último dato de cada estación con que ya se decidió. */
+  private readonly decided = new Map<string, string>();
   private firstCheck?: NodeJS.Timeout;
   private timer?: NodeJS.Timeout;
   private checking = false;
@@ -77,9 +83,13 @@ export class GalapagosAlertsService implements OnApplicationBootstrap, OnApplica
         const fresh = station.lastTime !== null && now.getTime() - Date.parse(station.lastTime) <= MAX_DATA_AGE_MS;
         // Sin dato reciente no se sabe el nivel: se conserva el anterior.
         if (!fresh) continue;
-        const before = this.levels.get(station.code) ?? 'normal';
-        this.levels.set(station.code, station.level);
-        if (LEVEL_RANK[station.level] > LEVEL_RANK[before]) await this.notify(station, now);
+        // Las estaciones publican un dato por hora: se decide una vez por dato, con el mar de ese momento.
+        if (this.decided.get(station.code) === station.lastTime) continue;
+        this.decided.set(station.code, station.lastTime!);
+        const before = this.scenarios.get(station.code) ?? 'normal';
+        this.scenarios.set(station.code, station.scenario);
+        const rank = SCENARIO_RANK[station.scenario];
+        if (rank > SCENARIO_RANK[before] && rank >= SCENARIO_RANK.alert) await this.notify(station, now);
       }
     } catch (error) {
       this.logger.error(`No se pudo revisar la lluvia de Galápagos: ${(error as Error).message}`);
@@ -89,8 +99,12 @@ export class GalapagosAlertsService implements OnApplicationBootstrap, OnApplica
   }
 
   private async notify(station: GalapagosStationRain, now: Date): Promise<void> {
-    const alertKey = `galapagos-rain:${station.code}:${station.level}:${dayFormat.format(now)}`;
-    const subject = `${station.level === 'extreme' ? 'Alarma extrema' : 'Alarma'} de lluvia en ${station.island}`;
+    // Lluvia de alarma con el mar alto: emergencia por la marea, con su propio aviso.
+    const highSea = station.level === 'alarm' && station.scenario === 'emergency';
+    const alertKey = `galapagos-rain:${station.code}:${station.level}${highSea ? '-sea' : ''}:${dayFormat.format(now)}`;
+    const subject = highSea
+      ? `Emergencia por lluvia con el mar alto en ${station.island}`
+      : `${station.level === 'extreme' ? 'Alarma extrema' : 'Alarma'} de lluvia en ${station.island}`;
     const message = this.withMapLink(galapagosAlertMessage(station));
     this.logger.log(`${subject}: ${station.mm5h} mm en 5 h, ${station.mm3h} mm en 3 h (${station.code})`);
 
