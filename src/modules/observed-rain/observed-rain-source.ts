@@ -1,3 +1,5 @@
+import { ECUADOR_RINGS } from '../../common/geo/ecuador-boundary.js';
+import type { Ring } from '../../common/geo/polygon.js';
 import type { ColorStop } from '../../common/raster/color-ramp.js';
 import type { RasterGrid } from '../../common/raster/raster-grid.js';
 
@@ -23,4 +25,12 @@ export abstract class ObservedRainSource {
   abstract getHourlyGrid(product: string, time: string): Promise<RasterGrid>;
   /** Paleta oficial con la que se pinta la lluvia acumulada del producto. */
   abstract getColorStops(product: string): Promise<ColorStop[]>;
+  /**
+   * Zona donde el producto se pinta y se consulta. Por defecto, el Ecuador
+   * continental; un producto cuya grilla llega más lejos (p. ej. hasta Galápagos)
+   * devuelve la suya.
+   */
+  getClip(_product: string): readonly Ring[] {
+    return ECUADOR_RINGS;
+  }
 }

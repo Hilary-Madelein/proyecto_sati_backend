@@ -1,7 +1,9 @@
 import { Injectable } from '@nestjs/common';
+import type { Ring } from '../../common/geo/polygon.js';
 import type { ColorStop } from '../../common/raster/color-ramp.js';
 import type { RasterGrid } from '../../common/raster/raster-grid.js';
 import { ObservedRainSource, type ObservedRainProduct } from '../../modules/observed-rain/observed-rain-source.js';
+import { PARDIG_CLIP } from '../google-pardig/pardig-grid.js';
 import { PARDIG_PRODUCT, PardigRainSource } from '../google-pardig/pardig-rain.source.js';
 import { SatelliteObservedRainSource } from './satellite-observed-rain.source.js';
 
@@ -45,5 +47,10 @@ export class CombinedObservedRainSource extends ObservedRainSource {
     if (product !== PARDIG_PRODUCT.key) return this.satellite.getColorStops(product);
     const [first] = this.satellite.products;
     return first ? this.satellite.getColorStops(first.key).catch(() => FALLBACK_STOPS) : FALLBACK_STOPS;
+  }
+
+  /** PARDIG es mundial: además del continente, se muestra en el recuadro de Galápagos. */
+  override getClip(product: string): readonly Ring[] {
+    return product === PARDIG_PRODUCT.key ? PARDIG_CLIP : super.getClip(product);
   }
 }

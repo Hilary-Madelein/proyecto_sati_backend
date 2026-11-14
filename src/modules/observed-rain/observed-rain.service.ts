@@ -1,7 +1,6 @@
 import { BadGatewayException, Injectable, NotFoundException } from '@nestjs/common';
 import { mapWithConcurrency } from '../../common/async/map-with-concurrency.js';
 import { TtlCache } from '../../common/cache/ttl-cache.js';
-import { ECUADOR_RINGS } from '../../common/geo/ecuador-boundary.js';
 import { isInsideRings } from '../../common/geo/polygon.js';
 import { UpstreamError } from '../../common/http/upstream.error.js';
 import { createColorRamp } from '../../common/raster/color-ramp.js';
@@ -23,9 +22,10 @@ const MIN_COVERAGE = 0.9;
 const DOWNLOAD_CONCURRENCY = 6;
 /**
  * La grilla del satélite es de ~4 km: se suaviza (interpolación bilineal) y se
- * recorta al contorno del Ecuador, como el mapa oficial del INAMHI.
+ * recorta a la zona del producto (el contorno del Ecuador, como el mapa oficial
+ * del INAMHI; ver `getClip`).
  */
-const RENDER_OPTIONS = { scale: 4, smooth: true, clip: ECUADOR_RINGS } as const;
+const RENDER_OPTIONS = { scale: 4, smooth: true } as const;
 
 export interface ObservedWindowStatus {
   hours: ObservedHours;
@@ -69,7 +69,7 @@ export interface ObservedRainPoint {
   hours: ObservedHours;
   from: string;
   to: string;
-  /** Lluvia acumulada en la celda del punto (mm); null fuera del Ecuador o sin dato. */
+  /** Lluvia acumulada en la celda del punto (mm); null fuera de la zona del producto o sin dato. */
   mm: number | null;
 }
 
@@ -149,7 +149,7 @@ export class ObservedRainService {
 
   async valueAt(product: string, hours: ObservedHours, lat: number, lng: number): Promise<ObservedRainPoint> {
     const { meta, grid } = await this.render(product, hours);
-    const value = isInsideRings(ECUADOR_RINGS, lng, lat) ? valueAt(grid, lat, lng) : null;
+    const value = isInsideRings(this.source.getClip(product), lng, lat) ? valueAt(grid, lat, lng) : null;
     return {
       product: meta.product,
       hours,
@@ -227,7 +227,7 @@ export class ObservedRainService {
         const total = sumGrids(grids);
         const [west, south, east, north] = total.bbox;
         return {
-          png: renderGridPng(total, createColorRamp(stops), RENDER_OPTIONS),
+          png: renderGridPng(total, createColorRamp(stops), { ...RENDER_OPTIONS, clip: this.source.getClip(product.key) }),
           grid: total,
           meta: {
             product: product.key,

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { CROP_BBOX, CROP_END_BYTE, CROP_HEIGHT, CROP_WIDTH, FRAME_MS, FrameCropper, WORLD_BYTES, frameFolder, framesOfHour, hourlyGrid } from './pardig-grid.js';
+import { isInsideRings } from '../../common/geo/polygon.js';
+import { CROP_BBOX, CROP_END_BYTE, CROP_HEIGHT, CROP_WIDTH, FRAME_MS, FrameCropper, PARDIG_CLIP, WORLD_BYTES, frameFolder, framesOfHour, hourlyGrid } from './pardig-grid.js';
 
 const WORLD_WIDTH = 3600;
 
@@ -29,16 +30,24 @@ describe('recorte de PARDIG', () => {
   // Guayaquil (-2,2; -79,9) con 0,012 m/h = 12 mm/h; las esquinas del recorte; y una celda fuera, que no entra.
   const world = worldWith([
     { lat: -2.2, lng: -79.9, metersPerHour: 0.012 },
-    { lat: 1.6, lng: -81.2, metersPerHour: 0.001 },
+    { lat: 1.6, lng: -92.2, metersPerHour: 0.001 },
     { lat: -5.1, lng: -75.1, metersPerHour: 0.002 },
     { lat: 10, lng: -79.9, metersPerHour: 0.5 },
     { lat: -2.2, lng: -60, metersPerHour: 0.5 },
   ]);
-  const cell = (lat: number, lng: number) => Math.round((1.6 - lat) * 10) * CROP_WIDTH + Math.round((lng + 81.2) * 10);
+  const cell = (lat: number, lng: number) => Math.round((1.6 - lat) * 10) * CROP_WIDTH + Math.round((lng + 92.2) * 10);
 
-  it('el recorte cubre el Ecuador continental en celdas de 0,1°', () => {
-    expect([CROP_WIDTH, CROP_HEIGHT]).toEqual([62, 68]);
-    expect(CROP_BBOX).toEqual([-81.25, -5.15, -75.05, 1.65]);
+  it('el recorte va de Galápagos al oriente del Ecuador en celdas de 0,1°', () => {
+    expect([CROP_WIDTH, CROP_HEIGHT]).toEqual([172, 68]);
+    expect(CROP_BBOX).toEqual([-92.25, -5.15, -75.05, 1.65]);
+  });
+
+  it('se muestra en el continente y en el recuadro de Galápagos, no en el mar entre ambos', () => {
+    const inside = (lng: number, lat: number) => isInsideRings(PARDIG_CLIP, lng, lat);
+    expect(inside(-79.9, -2.2)).toBe(true); // Guayaquil
+    expect(inside(-90.3, -0.74)).toBe(true); // Puerto Ayora
+    expect(inside(-89.61, -0.9)).toBe(true); // San Cristóbal
+    expect(inside(-85, -1)).toBe(false); // mar abierto
   });
 
   it('la carpeta de cada imagen lleva su hora UTC', () => {
@@ -48,7 +57,7 @@ describe('recorte de PARDIG', () => {
   it('ubica cada celda en su lugar (norte arriba) y pasa de m/h a mm/h', () => {
     const { crop } = cropInChunks(world, world.length);
     expect(crop[cell(-2.2, -79.9)]).toBeCloseTo(12, 4);
-    expect(crop[cell(1.6, -81.2)]).toBeCloseTo(1, 4);
+    expect(crop[cell(1.6, -92.2)]).toBeCloseTo(1, 4);
     expect(crop[cell(-5.1, -75.1)]).toBeCloseTo(2, 4);
     expect(crop.reduce((sum, value) => sum + value, 0)).toBeCloseTo(15, 3);
   });

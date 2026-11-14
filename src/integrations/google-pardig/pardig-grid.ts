@@ -1,10 +1,12 @@
+import { ECUADOR_RINGS } from '../../common/geo/ecuador-boundary.js';
+import type { Ring } from '../../common/geo/polygon.js';
 import type { RasterGrid } from '../../common/raster/raster-grid.js';
 
 /*
  * PARDIG (Google DeepMind): lluvia estimada con IA a partir de satélites, cada 15
  * minutos, en una grilla mundial de 0,1° (1801 × 3600). Cada dato es la intensidad
  * de la lluvia en ese instante, en metros por hora. De cada imagen solo se guarda
- * el recorte del Ecuador continental, en memoria.
+ * el recorte del Ecuador (del continente a Galápagos), en memoria.
  */
 
 /** Grilla mundial: centros de celda cada 0,1°, latitud de -90 a 90 (sur a norte) y longitud de 0 a 359,9. */
@@ -12,8 +14,26 @@ const WORLD = { width: 3600, height: 1801 } as const;
 const BYTES_PER_CELL = 4;
 export const WORLD_BYTES = WORLD.width * WORLD.height * BYTES_PER_CELL;
 
-/** Centros de celda del recorte (Ecuador continental, como el satélite del INAMHI), en décimas de grado. */
-const CROP = { westTenths: -812, eastTenths: -751, southTenths: -51, northTenths: 16 } as const;
+/** Centros de celda del recorte (de Galápagos al oriente del Ecuador continental), en décimas de grado. */
+const CROP = { westTenths: -922, eastTenths: -751, southTenths: -51, northTenths: 16 } as const;
+
+/** Recuadro de Galápagos donde se muestra la lluvia (las islas con algo de mar alrededor): [oeste, sur, este, norte]. */
+const GALAPAGOS_BOX = [-92.1, -1.5, -89.1, 0.75] as const;
+/**
+ * Donde se pinta y se consulta PARDIG: el Ecuador continental y el recuadro de
+ * Galápagos. El mar entre ambos queda sin pintar. En las islas se deja ver también
+ * el mar cercano: con celdas de 10 km, recortar a la costa dejaría casi nada.
+ */
+export const PARDIG_CLIP: readonly Ring[] = [
+  ...ECUADOR_RINGS,
+  [
+    [GALAPAGOS_BOX[0], GALAPAGOS_BOX[1]],
+    [GALAPAGOS_BOX[2], GALAPAGOS_BOX[1]],
+    [GALAPAGOS_BOX[2], GALAPAGOS_BOX[3]],
+    [GALAPAGOS_BOX[0], GALAPAGOS_BOX[3]],
+    [GALAPAGOS_BOX[0], GALAPAGOS_BOX[1]],
+  ],
+];
 
 export const CROP_WIDTH = CROP.eastTenths - CROP.westTenths + 1;
 export const CROP_HEIGHT = CROP.northTenths - CROP.southTenths + 1;
